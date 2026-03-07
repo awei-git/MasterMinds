@@ -1,6 +1,20 @@
-# 神仙会 (MasterMinds)
+<p align="center">
+  <img src="public/logo.svg" alt="神仙会" width="400" />
+</p>
 
-多智能体协作创意写作平台。多个 AI agent 以圆桌讨论的形式，陪你从灵感到定稿，完成一部作品。
+<p align="center">
+  <em>多智能体协作创意写作平台</em><br/>
+  <sub>多个 AI agent 以圆桌讨论的形式，陪你从灵感到定稿，完成一部作品</sub>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-16-black?logo=next.js" alt="Next.js" />
+  <img src="https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Tailwind-v4-38bdf8?logo=tailwindcss" alt="Tailwind" />
+  <img src="https://img.shields.io/badge/LLM-Claude%20%7C%20GPT%20%7C%20DeepSeek%20%7C%20Gemini-green" alt="LLM" />
+</p>
+
+---
 
 ## 工作方式
 
@@ -19,14 +33,16 @@
 
 ## Agent
 
-- **灵犀** (Idea) — 点子发散与收敛
-- **鲁班** (Architect) — 故事结构与节奏
-- **画皮** (Character) — 角色心理与声音
-- **妙笔** (Writer) — 文笔与场景
-- **铁面** (Editor) — 批判审稿与质控
-- **知音** (Reader) — 第一读者视角
+> 每个 agent 配备专属写作技能（对话潜台词、心理距离、场景张力等），从 markdown 技能文件加载。
 
-每个 agent 配备专属写作技能（对话潜台词、心理距离、场景张力等），从 markdown 技能文件加载。
+| | 名号 | 角色 | 专长 |
+|---|------|------|------|
+| 💡 | **灵犀** | Idea | 点子发散与收敛 |
+| 🏗 | **鲁班** | Architect | 故事结构与节奏 |
+| 🎭 | **画皮** | Character | 角色心理与声音 |
+| ✍ | **妙笔** | Writer | 文笔与场景 |
+| 📝 | **铁面** | Editor | 批判审稿与质控 |
+| 📖 | **知音** | Reader | 第一读者视角 |
 
 ## 技术栈
 

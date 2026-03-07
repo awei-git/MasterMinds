@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1714;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#141e1b;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5e8a85" />
+      <stop offset="100%" style="stop-color:#8bb8b0" />
+    </linearGradient>
+    <linearGradient id="line" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#5e8a85;stop-opacity:0" />
+      <stop offset="50%" style="stop-color:#5e8a85;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:#5e8a85;stop-opacity:0" />
+    </linearGradient>
+    <radialGradient id="glow" cx="30%" cy="30%" r="60%">
+      <stop offset="0%" style="stop-color:#5e8a85;stop-opacity:0.08" />
+      <stop offset="100%" style="stop-color:#5e8a85;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="480" height="160" rx="16" fill="url(#bg)"/>
+  <!-- Glow -->
+  <ellipse cx="160" cy="60" rx="200" ry="120" fill="url(#glow)"/>
+  <!-- Constellation dots (roundtable) -->
+  <circle cx="400" cy="45" r="3" fill="#5e8a85" opacity="0.5"/>
+  <circle cx="380" cy="62" r="2.5" fill="#5e8a85" opacity="0.35"/>
+  <circle cx="420" cy="62" r="2.5" fill="#5e8a85" opacity="0.35"/>
+  <circle cx="388" cy="30" r="2" fill="#5e8a85" opacity="0.25"/>
+  <circle cx="412" cy="30" r="2" fill="#5e8a85" opacity="0.25"/>
+  <circle cx="400" cy="72" r="1.8" fill="#5e8a85" opacity="0.2"/>
+  <line x1="400" y1="45" x2="380" y2="62" stroke="#5e8a85" stroke-width="0.5" opacity="0.2"/>
+  <line x1="400" y1="45" x2="420" y2="62" stroke="#5e8a85" stroke-width="0.5" opacity="0.2"/>
+  <line x1="400" y1="45" x2="388" y2="30" stroke="#5e8a85" stroke-width="0.5" opacity="0.2"/>
+  <line x1="400" y1="45" x2="412" y2="30" stroke="#5e8a85" stroke-width="0.5" opacity="0.2"/>
+  <line x1="400" y1="45" x2="400" y2="72" stroke="#5e8a85" stroke-width="0.5" opacity="0.2"/>
+  <!-- Title -->
+  <text x="40" y="72" font-family="'Zhi Mang Xing','KaiTi','STKaiti',serif" font-size="52" fill="url(#accent)">神仙会</text>
+  <text x="42" y="96" font-family="'Inter','SF Pro',sans-serif" font-size="13" fill="#8bb8b0" opacity="0.45" letter-spacing="3">MasterMinds</text>
+  <!-- Divider -->
+  <line x1="0" y1="115" x2="480" y2="115" stroke="url(#line)" stroke-width="0.5"/>
+  <!-- Tagline -->
+  <text x="40" y="138" font-family="'Inter','SF Pro',sans-serif" font-size="14" fill="#c8d6d3" opacity="0.5">长篇创作工作室</text>
+  <text x="168" y="138" font-family="'Inter','SF Pro',sans-serif" font-size="14" fill="#c8d6d3" opacity="0.25">—</text>
+  <text x="188" y="138" font-family="'Inter','SF Pro',sans-serif" font-size="14" fill="#c8d6d3" opacity="0.35">从一颗种子到一本书</text>
+</svg>
