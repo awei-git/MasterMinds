@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --background: #101214;
+  --background-warm: #12151a;
+  --foreground: #d4d4d8;
+  --accent: #5e8a85;
+  --accent-hover: #74a39d;
+  --accent-dim: #1a2c2a;
+  --accent-glow: rgba(94, 138, 133, 0.10);
+  --surface: #181b1f;
+  --surface-hover: #21252b;
+  --border: #262a30;
+  --border-light: #353b44;
+  --muted: #71767e;
+  --gold: #5e8a85;
+  --gold-dim: rgba(94, 138, 133, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-warm: var(--background-warm);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-dim: var(--accent-dim);
+  --color-accent-glow: var(--accent-glow);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+  --color-muted: var(--muted);
+  --color-gold: var(--gold);
+  --color-gold-dim: var(--gold-dim);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif-cn: var(--font-serif-cn);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+::selection {
+  background: var(--accent-dim);
+  color: var(--foreground);
+}
+
+/* Brush font for title */
+.font-brush {
+  font-family: var(--font-brush), "KaiTi", "STKaiti", cursive;
+}
+
+/* Serif font for Chinese headings */
+.font-serif-cn {
+  font-family: var(--font-serif-cn), "Songti SC", "SimSun", serif;
+}
+
+/* Gradient text utility */
+.text-gradient {
+  background: linear-gradient(135deg, #e8e4df 0%, #c4a882 45%, #5e8a85 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-subtle {
+  background: linear-gradient(135deg, #d4d4d8 0%, #9cb8b4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass card */
+.glass {
+  background: linear-gradient(135deg, rgba(24, 27, 31, 0.85), rgba(33, 37, 43, 0.4));
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+/* Glow effects */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(94, 138, 133, 0.06), 0 0 40px rgba(94, 138, 133, 0.03);
+}
+
+.glow-gold {
+  box-shadow: 0 0 20px rgba(94, 138, 133, 0.06), 0 0 40px rgba(94, 138, 133, 0.03);
+}
+
+/* Subtle noise texture overlay */
+.noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  border-radius: inherit;
+}

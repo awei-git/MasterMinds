@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// --- Projects ---
+
+model Project {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  type      String   // novel, screenplay
+  phase     String   @default("conception") // conception, bible, structure, draft, review, revision, final
+  status    String   @default("active") // active, paused, completed, archived
+  config    String   @default("{}") // JSON: language, pov, tense, target_words, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  discussions Discussion[]
+  messages    Message[]
+  clips       Clip[]
+}
+
+// --- Discussions ---
+// The core interaction unit: agents discuss topics, human intervenes
+
+model Discussion {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id])
+  topic      String
+  phase      String   // which phase this discussion belongs to
+  status     String   @default("open") // open, resolved
+  resolution String?  // final conclusion
+  decidedBy  String?  // "human" or agent role name
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  messages Message[]
+}
+
+// --- Messages ---
+// Used for both discussions and general project chat (brainstorm in Phase 1)
+
+// --- Clips ---
+// Scratchpad / clipboard for saving noteworthy snippets
+
+model Clip {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  content   String
+  source    String?  // e.g. "idea", "architect", "human" — where it came from
+  createdAt DateTime @default(now())
+}
+
+// --- Messages ---
+// Used for both discussions and general project chat (brainstorm in Phase 1)
+
+model Message {
+  id           String      @id @default(cuid())
+  projectId    String
+  project      Project     @relation(fields: [projectId], references: [id])
+  discussionId String?
+  discussion   Discussion? @relation(fields: [discussionId], references: [id])
+  role         String      // "human", "architect", "character", "writer", "editor", "reader", "continuity", "worldbuilder", "idea"
+  model        String?     // "claude", "gpt", "deepseek" — which LLM generated this
+  content      String
+  metadata     String      @default("{}") // JSON: scores, attachments, etc.
+  createdAt    DateTime    @default(now())
+}
