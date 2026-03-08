@@ -8,6 +8,7 @@ import {
   deleteProject,
 } from "@/lib/project";
 import { prisma } from "@/lib/db";
+import { syncAppStatus } from "@/lib/status";
 
 // GET — list active projects (add ?archived=1 for archived)
 export async function GET(req: NextRequest) {
@@ -61,6 +62,7 @@ export async function PATCH(req: Request) {
         where: { slug },
         data: { phase: body.phase },
       });
+      syncAppStatus().catch(() => {});
       return NextResponse.json(updated);
     }
     return NextResponse.json({ error: "unknown action" }, { status: 400 });

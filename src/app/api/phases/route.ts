@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { complete, type ModelProvider } from "@/lib/llm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { syncAppStatus } from "@/lib/status";
 
 const DATA_DIR = join(process.cwd(), "data");
 
@@ -129,6 +130,9 @@ export async function POST(req: Request) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(summaryPath(projectSlug, phase), result, "utf-8");
 
+    // Sync status to Mira
+    syncAppStatus().catch(() => {});
+
     return Response.json({ content: result });
   } catch (err) {
     console.error("phase summary error:", err);
@@ -156,6 +160,8 @@ export async function PATCH(req: NextRequest) {
     const dir = phasesDir(projectSlug);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(summaryPath(projectSlug, phase), content, "utf-8");
+
+    syncAppStatus().catch(() => {});
 
     return Response.json({ ok: true });
   } catch (err) {

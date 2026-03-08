@@ -365,6 +365,16 @@ export default function ProjectPage() {
     setCollapsedRounds(newCollapsed);
   }
 
+  // Auto-collapse all rounds except the last two
+  useEffect(() => {
+    if (rounds.length <= 2) return;
+    const toCollapse = new Set<string>();
+    for (let i = 0; i < rounds.length - 2; i++) {
+      toCollapse.add(rounds[i].id);
+    }
+    setCollapsedRounds(toCollapse);
+  }, [messages.length]);
+
   // During streaming: scroll to bottom. When streaming ends: scroll back to user's message.
   const wasStreaming = useRef(false);
   useEffect(() => {
@@ -379,6 +389,8 @@ export default function ProjectPage() {
         const last = humanMsgs[humanMsgs.length - 1];
         last?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 200);
+      // Auto-generate/update phase summary after each conversation round
+      generatePhaseSummary(currentPhase);
     }
   }, [streaming, streamText]);
 
@@ -1114,8 +1126,8 @@ export default function ProjectPage() {
                             ? "glass hover:bg-surface-hover/50"
                             : "hover:bg-surface-hover/30"
                         }`}>
-                          <span className={hasSummary ? "text-green-400/80" : "text-foreground/15"}>
-                            {hasSummary ? "✓" : "○"}
+                          <span className={hasSummary ? "text-green-400/80" : summaryLoading ? "text-amber-400/60 animate-pulse" : "text-foreground/15"}>
+                            {hasSummary ? "✓" : summaryLoading ? "●" : "○"}
                           </span>
                           <span className={hasSummary ? "text-foreground/70 font-medium" : "text-foreground/30"}>
                             {step.label}
@@ -1178,14 +1190,10 @@ export default function ProjectPage() {
                             )
                           ) : (
                             <div className="px-3.5 py-2">
-                              {(isActive || isPast) && messages.length > 0 && (
-                                <button
-                                  onClick={() => generatePhaseSummary(step.key)}
-                                  disabled={summaryLoading}
-                                  className="text-xs text-accent/70 hover:text-accent disabled:text-foreground/15 transition-colors"
-                                >
-                                  {summaryLoading ? "生成中..." : "生成总结"}
-                                </button>
+                              {summaryLoading ? (
+                                <span className="text-xs text-foreground/30 animate-pulse">正在生成总结…</span>
+                              ) : (
+                                <span className="text-xs text-foreground/20">对话后自动生成</span>
                               )}
                             </div>
                           )}
