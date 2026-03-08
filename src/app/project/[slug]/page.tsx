@@ -7,8 +7,17 @@ interface Message {
   id: string;
   role: string;
   model?: string;
+  phase?: string;
   content: string;
   createdAt: string;
+}
+
+interface Round {
+  id: string; // first message id
+  humanMsg: Message | null;
+  agentMsgs: Message[];
+  phase?: string;
+  timestamp: string;
 }
 
 interface Clip {
@@ -90,6 +99,8 @@ export default function ProjectPage() {
   const [editingSummary, setEditingSummary] = useState<string | null>(null);
   const [editSummaryText, setEditSummaryText] = useState("");
   const [summaryModal, setSummaryModal] = useState<{ phase: string; text: string; editing: boolean } | null>(null);
+  const [collapsedRounds, setCollapsedRounds] = useState<Set<string>>(new Set());
+  const [roundSummaries, setRoundSummaries] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -289,6 +300,69 @@ export default function ProjectPage() {
     }
     setSummaryModal(null);
     setShowPhasePrompt(false);
+  }
+
+  // Group messages into rounds: human message + subsequent agent replies
+  const rounds: Round[] = (() => {
+    const result: Round[] = [];
+    let current: Round | null = null;
+    for (const m of messages) {
+      if (m.role === "human") {
+        if (current) result.push(current);
+        current = {
+          id: m.id,
+          humanMsg: m,
+          agentMsgs: [],
+          phase: m.phase,
+          timestamp: m.createdAt,
+        };
+      } else if (current) {
+        current.agentMsgs.push(m);
+        if (!current.phase && m.phase) current.phase = m.phase;
+      } else {
+        // Agent message before any human message (e.g. context imports)
+        result.push({
+          id: m.id,
+          humanMsg: null,
+          agentMsgs: [m],
+          phase: m.phase,
+          timestamp: m.createdAt,
+        });
+      }
+    }
+    if (current) result.push(current);
+    return result;
+  })();
+
+  // Toggle round collapse and generate summary if needed
+  async function toggleRound(roundId: string, round: Round) {
+    const newCollapsed = new Set(collapsedRounds);
+    if (newCollapsed.has(roundId)) {
+      newCollapsed.delete(roundId);
+    } else {
+      newCollapsed.add(roundId);
+      // Generate summary if not cached
+      if (!roundSummaries[roundId] && round.agentMsgs.length > 0) {
+        const allMsgs = [
+          ...(round.humanMsg ? [{ role: "human", content: round.humanMsg.content }] : []),
+          ...round.agentMsgs.map((m) => ({ role: m.role, content: m.content })),
+        ];
+        try {
+          const res = await fetch("/api/chat/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: allMsgs, provider: activeProvider }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setRoundSummaries((prev) => ({ ...prev, [roundId]: data.summary }));
+          }
+        } catch {
+          // silent fail — just show without summary
+        }
+      }
+    }
+    setCollapsedRounds(newCollapsed);
   }
 
   // During streaming: scroll to bottom. When streaming ends: scroll back to user's message.
@@ -623,104 +697,156 @@ export default function ProjectPage() {
                 </div>
               )}
 
-              {/* Message list */}
-              {messages.map((m) => {
-                const meta = ROLE_META[m.role] ?? {
-                  label: m.role,
-                  category: m.role,
-                  color: "text-muted",
-                  icon: "?",
-                };
-                const isHuman = m.role === "human";
-                const isContext = m.role === "context";
-
-                // Context messages — collapsible card
-                if (isContext) {
-                  const label = m.model && m.model !== "import" ? m.model : "参考资料";
-                  const preview = m.content.slice(0, 120).replace(/\n/g, " ");
-                  return (
-                    <div key={m.id} className="group/msg">
-                      <details className="glass rounded-xl border border-amber-500/10 overflow-hidden">
-                        <summary className="px-4 py-2.5 cursor-pointer flex items-center gap-2 text-sm hover:bg-surface-hover/30 transition-colors">
-                          <span>📄</span>
-                          <span className="text-amber-300/60 font-medium">{label}</span>
-                          <span className="text-muted/30 text-xs truncate flex-1">{preview}…</span>
-                          <span className="text-[11px] text-muted/20">{(m.content.length / 1000).toFixed(1)}k字</span>
-                          <button
-                            onClick={(e) => { e.preventDefault(); deleteMessage(m.id); }}
-                            className="text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all ml-1"
-                            title="删除此资料"
-                          >
-                            ✕
-                          </button>
-                        </summary>
-                        <div className="px-4 py-3 border-t border-border/30 max-h-80 overflow-y-auto">
-                          <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-foreground/60">
-                            {m.content}
-                          </div>
-                        </div>
-                      </details>
-                    </div>
-                  );
-                }
+              {/* Message list — grouped into rounds */}
+              {rounds.map((round, roundIdx) => {
+                const isCollapsed = collapsedRounds.has(round.id);
+                const isLastRound = roundIdx === rounds.length - 1;
+                const phaseLabel = FLOW_STEPS.find((s) => s.key === round.phase)?.label;
+                const agentIcons = [...new Set(round.agentMsgs.map((m) => ROLE_META[m.role]?.icon).filter(Boolean))];
+                const timeStr = new Date(round.timestamp).toLocaleString("zh-CN", {
+                  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+                });
 
                 return (
-                  <div key={m.id} {...(isHuman ? { "data-human-msg": true } : {})} className={`group/msg ${isHuman ? "flex justify-end" : ""}`}>
-                    <div
-                      className={`relative ${
-                        isHuman
-                          ? "max-w-2xl bg-accent/8 border border-accent/10 rounded-2xl rounded-br-sm px-5 py-3"
-                          : "max-w-3xl"
-                      }`}
-                    >
-                      {!isHuman && (
-                        <div className="flex items-center gap-1.5 mb-2">
-                          <span className="text-sm">{meta.icon}</span>
-                          <span
-                            className={`text-xs font-medium ${meta.color}`}
-                          >
-                            {meta.label}
+                  <div key={round.id} className="relative">
+                    {/* Round header — collapse toggle, tags, timestamp */}
+                    {(round.humanMsg || round.agentMsgs.length > 1) && (
+                      <div
+                        className="flex items-center gap-2 mb-2 cursor-pointer group/round select-none"
+                        onClick={() => !isLastRound && toggleRound(round.id, round)}
+                      >
+                        {!isLastRound && (
+                          <span className="text-[11px] text-muted/25 group-hover/round:text-foreground/40 transition-colors w-4">
+                            {isCollapsed ? "▶" : "▼"}
                           </span>
-                          {m.model && (
-                            <span className="text-[11px] text-muted/25 ml-1">
-                              {PROVIDER_LABELS[m.model] ?? m.model}
-                            </span>
-                          )}
-                          <div className="ml-auto flex gap-2 items-center">
-                            <button
-                              onClick={() => {
-                                saveClip(m.content, m.role);
-                                setClippedId(m.id);
-                                setTimeout(() => setClippedId(null), 1500);
-                              }}
-                              className="text-[11px] text-muted/25 hover:text-accent transition-colors"
-                              title="保存到剪贴板"
-                            >
-                              {clippedId === m.id ? "已保存 ✓" : "📌"}
-                            </button>
-                            <button
-                              onClick={() => deleteMessage(m.id)}
-                              className="text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all"
-                              title="删除此消息"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {isHuman && (
-                        <button
-                          onClick={() => deleteMessage(m.id)}
-                          className="absolute -left-6 top-3 text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all"
-                          title="删除此消息"
-                        >
-                          ✕
-                        </button>
-                      )}
-                      <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85">
-                        {m.content}
+                        )}
+                        {phaseLabel && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent/60">
+                            {phaseLabel}
+                          </span>
+                        )}
+                        {agentIcons.length > 0 && (
+                          <span className="text-[11px] text-muted/30">
+                            {agentIcons.join(" ")}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-muted/20">{timeStr}</span>
+                        {isCollapsed && roundSummaries[round.id] && (
+                          <span className="text-[11px] text-foreground/30 truncate flex-1 italic">
+                            {roundSummaries[round.id]}
+                          </span>
+                        )}
+                        {isCollapsed && !roundSummaries[round.id] && round.humanMsg && (
+                          <span className="text-[11px] text-foreground/25 truncate flex-1">
+                            {round.humanMsg.content.slice(0, 60).replace(/\n/g, " ")}
+                          </span>
+                        )}
                       </div>
-                    </div>
+                    )}
+
+                    {/* Round content — collapsible */}
+                    {!isCollapsed && (
+                      <div className="space-y-5">
+                        {/* Human message */}
+                        {round.humanMsg && (
+                          <div data-human-msg className="group/msg flex justify-end">
+                            <div className="relative max-w-2xl bg-accent/8 border border-accent/10 rounded-2xl rounded-br-sm px-5 py-3">
+                              <button
+                                onClick={() => deleteMessage(round.humanMsg!.id)}
+                                className="absolute -left-6 top-3 text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all"
+                                title="删除此消息"
+                              >
+                                ✕
+                              </button>
+                              <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85">
+                                {round.humanMsg.content}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Agent messages */}
+                        {round.agentMsgs.map((m) => {
+                          const meta = ROLE_META[m.role] ?? {
+                            label: m.role, category: m.role, color: "text-muted", icon: "?",
+                          };
+
+                          // Context messages — collapsible card
+                          if (m.role === "context") {
+                            const label = m.model && m.model !== "import" ? m.model : "参考资料";
+                            const preview = m.content.slice(0, 120).replace(/\n/g, " ");
+                            return (
+                              <div key={m.id} className="group/msg">
+                                <details className="glass rounded-xl border border-amber-500/10 overflow-hidden">
+                                  <summary className="px-4 py-2.5 cursor-pointer flex items-center gap-2 text-sm hover:bg-surface-hover/30 transition-colors">
+                                    <span>📄</span>
+                                    <span className="text-amber-300/60 font-medium">{label}</span>
+                                    <span className="text-muted/30 text-xs truncate flex-1">{preview}…</span>
+                                    <span className="text-[11px] text-muted/20">{(m.content.length / 1000).toFixed(1)}k字</span>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); deleteMessage(m.id); }}
+                                      className="text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all ml-1"
+                                      title="删除此资料"
+                                    >
+                                      ✕
+                                    </button>
+                                  </summary>
+                                  <div className="px-4 py-3 border-t border-border/30 max-h-80 overflow-y-auto">
+                                    <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-foreground/60">
+                                      {m.content}
+                                    </div>
+                                  </div>
+                                </details>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={m.id} className="group/msg">
+                              <div className="max-w-3xl">
+                                <div className="flex items-center gap-1.5 mb-2">
+                                  <span className="text-sm">{meta.icon}</span>
+                                  <span className={`text-xs font-medium ${meta.color}`}>
+                                    {meta.label}
+                                  </span>
+                                  {m.model && (
+                                    <span className="text-[11px] text-muted/25 ml-1">
+                                      {PROVIDER_LABELS[m.model] ?? m.model}
+                                    </span>
+                                  )}
+                                  <div className="ml-auto flex gap-2 items-center">
+                                    <button
+                                      onClick={() => {
+                                        saveClip(m.content, m.role);
+                                        setClippedId(m.id);
+                                        setTimeout(() => setClippedId(null), 1500);
+                                      }}
+                                      className="text-[11px] text-muted/25 hover:text-accent transition-colors"
+                                      title="保存到剪贴板"
+                                    >
+                                      {clippedId === m.id ? "已保存 ✓" : "📌"}
+                                    </button>
+                                    <button
+                                      onClick={() => deleteMessage(m.id)}
+                                      className="text-[11px] text-muted/15 hover:text-red-400 opacity-0 group-hover/msg:opacity-100 transition-all"
+                                      title="删除此消息"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85">
+                                  {m.content}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Round separator */}
+                    {!isLastRound && <div className="border-b border-white/[0.04] mt-5" />}
                   </div>
                 );
               })}

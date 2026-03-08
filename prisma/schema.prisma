@@ -69,6 +69,7 @@ model Message {
   discussion   Discussion? @relation(fields: [discussionId], references: [id])
   role         String      // "human", "architect", "character", "writer", "editor", "reader", "continuity", "worldbuilder", "idea"
   model        String?     // "claude", "gpt", "deepseek" — which LLM generated this
+  phase        String?     // which phase this message was created in
   content      String
   metadata     String      @default("{}") // JSON: scores, attachments, etc.
   createdAt    DateTime    @default(now())

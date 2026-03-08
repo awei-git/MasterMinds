@@ -105,6 +105,7 @@ export async function POST(req: Request) {
         projectId: project.id,
         role: "human",
         content: message,
+        phase: project.phase ?? "conception",
       },
     });
   }
@@ -175,6 +176,7 @@ export async function POST(req: Request) {
                 projectId: project.id,
                 role,
                 model: provider,
+                phase: project.phase ?? "conception",
                 content: fullText,
               },
             });
