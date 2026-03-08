@@ -89,6 +89,7 @@ export default function ProjectPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [editingSummary, setEditingSummary] = useState<string | null>(null);
   const [editSummaryText, setEditSummaryText] = useState("");
+  const [summaryModal, setSummaryModal] = useState<{ phase: string; text: string; editing: boolean } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -254,16 +255,58 @@ export default function ProjectPage() {
     setEditingSummary(null);
   }
 
-  function advancePhase() {
+  // Open summary modal: generate summary for current phase, then show for review
+  async function startPhaseTransition() {
+    const phase = currentPhase;
+    // If summary already exists, show it directly
+    if (phaseSummaries[phase]) {
+      setSummaryModal({ phase, text: phaseSummaries[phase], editing: false });
+      return;
+    }
+    // Generate summary
+    setSummaryModal({ phase, text: "", editing: false });
+    setSummaryLoading(true);
+    try {
+      const res = await fetch("/api/phases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectSlug: slug, phase, provider: activeProvider }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPhaseSummaries((prev) => ({ ...prev, [phase]: data.content }));
+        setSummaryModal({ phase, text: data.content, editing: false });
+      }
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  function confirmAdvancePhase() {
     const idx = FLOW_STEPS.findIndex((s) => s.key === currentPhase);
     if (idx < FLOW_STEPS.length - 1) {
       setPhase(FLOW_STEPS[idx + 1].key);
     }
+    setSummaryModal(null);
+    setShowPhasePrompt(false);
   }
 
+  // During streaming: scroll to bottom. When streaming ends: scroll back to user's message.
+  const wasStreaming = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamText]);
+    if (streaming) {
+      wasStreaming.current = true;
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    } else if (wasStreaming.current) {
+      wasStreaming.current = false;
+      // Roundtable finished — scroll to user's last message
+      setTimeout(() => {
+        const humanMsgs = document.querySelectorAll("[data-human-msg]");
+        const last = humanMsgs[humanMsgs.length - 1];
+        last?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 200);
+    }
+  }, [streaming, streamText]);
 
   // Stream one agent's response, return the text
   async function streamOneAgent(role: string, message: string, skipSaveHuman = false): Promise<string> {
@@ -540,8 +583,8 @@ export default function ProjectPage() {
 
       {/* Main content - split layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Chat area — 3/4 */}
-        <div className="w-3/4 flex flex-col min-w-0">
+        {/* Left: Chat area — 2/3 */}
+        <div className="w-2/3 flex flex-col min-w-0">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-6 space-y-6">
@@ -622,7 +665,7 @@ export default function ProjectPage() {
                 }
 
                 return (
-                  <div key={m.id} className={`group/msg ${isHuman ? "flex justify-end" : ""}`}>
+                  <div key={m.id} {...(isHuman ? { "data-human-msg": true } : {})} className={`group/msg ${isHuman ? "flex justify-end" : ""}`}>
                     <div
                       className={`relative ${
                         isHuman
@@ -752,23 +795,12 @@ export default function ProjectPage() {
                       </p>
                     </div>
                     <div className="flex gap-2 shrink-0 ml-4">
-                      {!phaseSummaries[currentPhase] && (
-                        <button
-                          onClick={() => generatePhaseSummary(currentPhase)}
-                          disabled={summaryLoading}
-                          className="px-4 py-2 text-sm bg-surface-hover/60 hover:bg-surface-hover text-muted/60 hover:text-foreground rounded-lg transition-colors"
-                        >
-                          {summaryLoading ? "生成中..." : "生成阶段总结"}
-                        </button>
-                      )}
                       <button
-                        onClick={() => {
-                          advancePhase();
-                          setShowPhasePrompt(false);
-                        }}
-                        className="px-4 py-2 text-sm bg-accent/20 hover:bg-accent/30 text-accent rounded-lg transition-colors"
+                        onClick={startPhaseTransition}
+                        disabled={summaryLoading}
+                        className="px-4 py-2 text-sm bg-accent/20 hover:bg-accent/30 text-accent rounded-lg transition-colors disabled:opacity-50"
                       >
-                        进入下一阶段
+                        {summaryLoading ? "生成总结中..." : "进入下一阶段"}
                       </button>
                       <button
                         onClick={() => setShowPhasePrompt(false)}
@@ -826,16 +858,15 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        {/* Right: Sidebar */}
-        {/* Right: Sidebar — 1/4 */}
-        <aside className="w-1/4 border-l border-border/40 bg-background-warm shrink-0 overflow-y-auto hidden xl:block">
-          <div className="p-5 space-y-6">
+        {/* Right: Sidebar — 1/3 */}
+        <aside className="w-1/3 border-l border-border/40 bg-background-warm shrink-0 overflow-y-auto hidden lg:block">
+          <div className="p-6 space-y-7">
             {/* Flow progress */}
             <div>
-              <h3 className="text-[11px] text-muted/35 uppercase tracking-[0.15em] mb-3">
+              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
                 创作流程
               </h3>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {FLOW_STEPS.map((step) => {
                   const isActive = step.key === currentPhase;
                   const isPast = FLOW_STEPS.findIndex((s) => s.key === currentPhase) >
@@ -846,22 +877,22 @@ export default function ProjectPage() {
                     <button
                       key={step.key}
                       onClick={() => setPhase(step.key)}
-                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all ${
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition-all ${
                         isActive
-                          ? "bg-accent/8 border border-accent/20"
+                          ? "bg-accent/10 border border-accent/25"
                           : isPast
-                          ? "text-muted/40 hover:bg-surface-hover/30"
-                          : "text-muted/25 hover:bg-surface-hover/30"
+                          ? "text-foreground/35 hover:bg-surface-hover/40"
+                          : "text-foreground/20 hover:bg-surface-hover/30"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         <span
-                          className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                          className={`w-2 h-2 rounded-full transition-colors ${
                             isActive
-                              ? "bg-accent shadow-[0_0_6px_rgba(94,138,133,0.5)]"
+                              ? "bg-accent shadow-[0_0_8px_rgba(94,138,133,0.5)]"
                               : isPast
-                              ? "bg-muted/30"
-                              : "bg-border/60"
+                              ? "bg-foreground/20"
+                              : "bg-foreground/10"
                           }`}
                         />
                         <span
@@ -873,9 +904,10 @@ export default function ProjectPage() {
                         >
                           {stepMeta?.icon} {step.label}
                         </span>
+                        {isPast && <span className="text-[10px] text-foreground/20 ml-auto">done</span>}
                       </div>
                       {isActive && (
-                        <p className="text-[11px] text-muted/40 mt-1 ml-3.5">
+                        <p className="text-[12px] text-foreground/35 mt-1 ml-[18px]">
                           {step.description}
                         </p>
                       )}
@@ -883,48 +915,62 @@ export default function ProjectPage() {
                   );
                 })}
               </div>
-              {/* Advance phase button */}
               {FLOW_STEPS.findIndex((s) => s.key === currentPhase) < FLOW_STEPS.length - 1 && (
                 <button
-                  onClick={advancePhase}
-                  className="mt-3 w-full px-3 py-2 text-sm text-accent/70 hover:text-accent bg-accent/5 hover:bg-accent/10 border border-accent/15 rounded-xl transition-all"
+                  onClick={startPhaseTransition}
+                  disabled={summaryLoading}
+                  className="mt-3 w-full px-3.5 py-2.5 text-sm text-accent/80 hover:text-accent bg-accent/8 hover:bg-accent/15 border border-accent/20 rounded-xl transition-all disabled:opacity-50"
                 >
-                  进入下一阶段 →
+                  {summaryLoading ? "生成总结中..." : "进入下一阶段 →"}
                 </button>
               )}
             </div>
 
             {/* Roundtable members */}
             <div>
-              <h3 className="text-[11px] text-muted/35 uppercase tracking-[0.15em] mb-3">
+              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
                 圆桌成员
               </h3>
               <div className="space-y-2">
                 {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((role, i) => {
                   const meta = ROLE_META[role];
                   if (!meta) return null;
+                  const descs: Record<string, string> = {
+                    idea: "点子发散与收敛",
+                    architect: "故事结构与节奏",
+                    character: "角色心理与声音",
+                    writer: "文笔与场景",
+                    editor: "批判审稿与质控",
+                    reader: "第一读者视角",
+                    continuity: "事实追踪与矛盾检测",
+                  };
                   return (
-                    <div key={role} className="glass rounded-xl px-3.5 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{meta.icon}</span>
-                        <span className={`text-sm font-medium ${meta.color}`}>{meta.label}</span>
-                        {i === 0 && <span className="text-[10px] text-accent/50 ml-auto">主发言</span>}
+                    <div key={role} className="glass rounded-xl px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-lg">{meta.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-medium ${meta.color}`}>{meta.label}</span>
+                            {i === 0 && <span className="text-[10px] text-accent/60 px-1.5 py-0.5 bg-accent/10 rounded">主发言</span>}
+                          </div>
+                          <p className="text-[11px] text-foreground/30 mt-0.5">{descs[role] ?? meta.category}</p>
+                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <p className="text-[10px] text-muted/20 mt-2">
+              <p className="text-[11px] text-foreground/25 mt-2.5">
                 你说一句话，所有成员自动轮流发言
               </p>
             </div>
 
             {/* Phase Summaries */}
             <div>
-              <h3 className="text-[11px] text-muted/35 uppercase tracking-[0.15em] mb-3">
+              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
                 阶段总结
               </h3>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {FLOW_STEPS.map((step) => {
                   const hasSummary = !!phaseSummaries[step.key];
                   const isEditing = editingSummary === step.key;
@@ -937,43 +983,43 @@ export default function ProjectPage() {
                   return (
                     <div key={step.key}>
                       <details className="group">
-                        <summary className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                        <summary className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl cursor-pointer text-sm transition-colors ${
                           hasSummary
-                            ? "glass hover:bg-surface-hover/40"
-                            : "text-muted/25 hover:bg-surface-hover/20"
+                            ? "glass hover:bg-surface-hover/50"
+                            : "hover:bg-surface-hover/30"
                         }`}>
-                          <span className={hasSummary ? "text-green-400/70" : "text-muted/20"}>
+                          <span className={hasSummary ? "text-green-400/80" : "text-foreground/15"}>
                             {hasSummary ? "✓" : "○"}
                           </span>
-                          <span className={hasSummary ? "text-foreground/60" : "text-muted/30"}>
+                          <span className={hasSummary ? "text-foreground/70 font-medium" : "text-foreground/30"}>
                             {step.label}
                           </span>
                           {hasSummary && (
-                            <span className="text-[10px] text-muted/20 ml-auto">
-                              {(phaseSummaries[step.key].length / 1000).toFixed(1)}k
+                            <span className="text-[11px] text-foreground/25 ml-auto">
+                              {(phaseSummaries[step.key].length / 1000).toFixed(1)}k字
                             </span>
                           )}
                         </summary>
-                        <div className="mt-1.5 rounded-lg overflow-hidden">
+                        <div className="mt-2 rounded-xl overflow-hidden">
                           {hasSummary ? (
                             isEditing ? (
                               <div className="space-y-2">
                                 <textarea
                                   value={editSummaryText}
                                   onChange={(e) => setEditSummaryText(e.target.value)}
-                                  className="w-full bg-surface/60 border border-border/40 rounded-lg px-3 py-2 text-xs text-foreground/70 leading-relaxed outline-none focus:border-accent/30 resize-none"
-                                  rows={12}
+                                  className="w-full bg-surface/60 border border-border/50 rounded-xl px-4 py-3 text-xs text-foreground/60 leading-relaxed outline-none focus:border-accent/30 resize-none"
+                                  rows={14}
                                 />
-                                <div className="flex gap-1.5">
+                                <div className="flex gap-2">
                                   <button
                                     onClick={() => savePhaseSummary(step.key, editSummaryText)}
-                                    className="px-2.5 py-1 text-[11px] bg-accent/20 text-accent rounded-lg"
+                                    className="px-3 py-1.5 text-xs bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
                                   >
                                     保存
                                   </button>
                                   <button
                                     onClick={() => setEditingSummary(null)}
-                                    className="px-2.5 py-1 text-[11px] text-muted/40 bg-surface-hover/40 rounded-lg"
+                                    className="px-3 py-1.5 text-xs text-foreground/35 bg-surface-hover/50 rounded-lg hover:text-foreground/50 transition-colors"
                                   >
                                     取消
                                   </button>
@@ -981,28 +1027,36 @@ export default function ProjectPage() {
                               </div>
                             ) : (
                               <div className="relative">
-                                <div className="glass rounded-lg px-3 py-2.5 max-h-48 overflow-y-auto text-[11px] text-foreground/50 leading-relaxed whitespace-pre-wrap">
+                                <div className="glass rounded-xl px-4 py-3 max-h-60 overflow-y-auto text-[12px] text-foreground/45 leading-relaxed whitespace-pre-wrap">
                                   {phaseSummaries[step.key]}
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    setEditingSummary(step.key);
-                                    setEditSummaryText(phaseSummaries[step.key]);
-                                  }}
-                                  className="absolute top-1.5 right-1.5 text-[10px] text-muted/20 hover:text-accent transition-colors"
-                                  title="编辑总结"
-                                >
-                                  ✎
-                                </button>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingSummary(step.key);
+                                      setEditSummaryText(phaseSummaries[step.key]);
+                                    }}
+                                    className="text-[11px] text-foreground/25 hover:text-accent transition-colors"
+                                  >
+                                    编辑
+                                  </button>
+                                  <button
+                                    onClick={() => generatePhaseSummary(step.key)}
+                                    disabled={summaryLoading}
+                                    className="text-[11px] text-foreground/25 hover:text-accent disabled:text-foreground/10 transition-colors"
+                                  >
+                                    {summaryLoading ? "生成中..." : "重新生成"}
+                                  </button>
+                                </div>
                               </div>
                             )
                           ) : (
-                            <div className="px-3 py-2">
+                            <div className="px-3.5 py-2">
                               {(isActive || isPast) && messages.length > 0 && (
                                 <button
                                   onClick={() => generatePhaseSummary(step.key)}
                                   disabled={summaryLoading}
-                                  className="text-[11px] text-accent/60 hover:text-accent disabled:text-muted/20 transition-colors"
+                                  className="text-xs text-accent/70 hover:text-accent disabled:text-foreground/15 transition-colors"
                                 >
                                   {summaryLoading ? "生成中..." : "生成总结"}
                                 </button>
@@ -1019,8 +1073,8 @@ export default function ProjectPage() {
 
             {/* Clipboard */}
             <div>
-              <h3 className="text-[11px] text-muted/35 uppercase tracking-[0.15em] mb-3">
-                剪贴板 {clips.length > 0 && <span className="text-muted/20">({clips.length})</span>}
+              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
+                剪贴板 {clips.length > 0 && <span className="text-foreground/25">({clips.length})</span>}
               </h3>
               <div className="space-y-2">
                 <div className="flex gap-1.5">
@@ -1059,7 +1113,7 @@ export default function ProjectPage() {
                 )}
 
                 {clips.length === 0 ? (
-                  <p className="text-[11px] text-muted/20 py-2">
+                  <p className="text-[11px] text-foreground/25 py-2">
                     点消息右上角 📌 保存，或在这里手动添加
                   </p>
                 ) : (
@@ -1098,21 +1152,21 @@ export default function ProjectPage() {
             {/* Stats */}
             {messages.length > 0 && (
               <div>
-                <h3 className="text-[11px] text-muted/35 uppercase tracking-[0.15em] mb-3">
+                <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
                   对话统计
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="glass rounded-lg px-3 py-2.5">
-                    <div className="text-lg font-medium text-foreground/70">
+                  <div className="glass rounded-xl px-4 py-3">
+                    <div className="text-xl font-semibold text-foreground/70">
                       {messages.length}
                     </div>
-                    <div className="text-[11px] text-muted/30">总消息</div>
+                    <div className="text-[11px] text-foreground/30">总消息</div>
                   </div>
-                  <div className="glass rounded-lg px-3 py-2.5">
-                    <div className="text-lg font-medium text-foreground/70">
+                  <div className="glass rounded-xl px-4 py-3">
+                    <div className="text-xl font-semibold text-foreground/70">
                       {msgStats.human ?? 0}
                     </div>
-                    <div className="text-[11px] text-muted/30">你的消息</div>
+                    <div className="text-[11px] text-foreground/30">你的消息</div>
                   </div>
                 </div>
 
@@ -1151,6 +1205,80 @@ export default function ProjectPage() {
           e.target.value = "";
         }}
       />
+
+      {/* Phase summary modal */}
+      {summaryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#141e1b] border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+              <h2 className="text-lg font-medium text-foreground/80">
+                {FLOW_STEPS.find((s) => s.key === summaryModal.phase)?.label ?? summaryModal.phase} — 阶段总结
+              </h2>
+              <button
+                onClick={() => setSummaryModal(null)}
+                className="text-foreground/30 hover:text-foreground/60 text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+              {summaryLoading ? (
+                <div className="flex items-center gap-2 text-foreground/40 py-8 justify-center">
+                  <span className="animate-pulse">●</span> 正在生成阶段总结…
+                </div>
+              ) : summaryModal.editing ? (
+                <textarea
+                  className="w-full h-full min-h-[300px] bg-black/20 border border-white/10 rounded-lg p-4 text-sm text-foreground/70 resize-none focus:outline-none focus:border-white/20"
+                  value={summaryModal.text}
+                  onChange={(e) =>
+                    setSummaryModal((prev) => prev ? { ...prev, text: e.target.value } : null)
+                  }
+                />
+              ) : (
+                <div className="text-sm text-foreground/60 whitespace-pre-wrap leading-relaxed">
+                  {summaryModal.text || "（无内容）"}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
+              <button
+                onClick={() => {
+                  if (summaryModal.editing) {
+                    savePhaseSummary(summaryModal.phase, summaryModal.text);
+                    setSummaryModal((prev) => prev ? { ...prev, editing: false } : null);
+                  } else {
+                    setSummaryModal((prev) => prev ? { ...prev, editing: true } : null);
+                  }
+                }}
+                disabled={summaryLoading}
+                className="text-sm text-foreground/40 hover:text-foreground/60 disabled:opacity-30"
+              >
+                {summaryModal.editing ? "保存" : "编辑"}
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSummaryModal(null)}
+                  className="px-4 py-2 text-sm text-foreground/40 hover:text-foreground/60"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmAdvancePhase}
+                  disabled={summaryLoading}
+                  className="px-4 py-2 text-sm bg-teal-700/40 hover:bg-teal-700/60 text-teal-200/80 rounded-lg disabled:opacity-30"
+                >
+                  确认进入下一阶段
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
