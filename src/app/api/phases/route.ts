@@ -33,11 +33,46 @@ export async function GET(req: NextRequest) {
   return Response.json({ content });
 }
 
+const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
+
+const PHASE_LABELS: Record<string, string> = {
+  conception: "构思",
+  bible: "世界与角色",
+  structure: "结构",
+  draft: "写作",
+  review: "审稿",
+  final: "定稿",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  human: "创作者",
+  idea: "灵犀（点子）",
+  architect: "鲁班（结构）",
+  character: "画皮（角色）",
+  writer: "妙笔（写手）",
+  editor: "铁面（编辑）",
+  reader: "知音（读者）",
+  continuity: "掌故（连续性）",
+  context: "导入资料",
+};
+
+/**
+ * Compact a message for summarization.
+ * - Human messages: keep full (creator's words are sacred)
+ * - Agent messages: truncate to ~800 chars, keep key decisions
+ */
+function compactMessage(role: string, content: string): string {
+  if (role === "human" || role === "context") return content;
+  // Agent messages: keep first 800 chars + signal if truncated
+  if (content.length <= 800) return content;
+  return content.slice(0, 800) + "\n\n[... 后续细节省略 ...]";
+}
+
 // POST — generate phase summary using LLM
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { projectSlug, phase, provider = "gpt" } = body as {
+    const { projectSlug, phase, provider = "deepseek" } = body as {
       projectSlug: string;
       phase: string;
       provider?: ModelProvider;
@@ -54,43 +89,46 @@ export async function POST(req: Request) {
       return Response.json({ error: "project not found" }, { status: 404 });
     }
 
-    // Load all messages for this project
-    const messages = await prisma.message.findMany({
+    // Filter messages by phase
+    // Legacy messages (phase=NULL) belong to "conception"
+    const allMessages = await prisma.message.findMany({
       where: { projectId: project.id, discussionId: null },
       orderBy: { createdAt: "asc" },
     });
 
-    if (messages.length === 0) {
-      return Response.json({ error: "no messages to summarize" }, { status: 400 });
+    const phaseMessages = allMessages.filter((m) => {
+      if (phase === "conception") {
+        return !m.phase || m.phase === "conception";
+      }
+      return m.phase === phase;
+    });
+
+    if (phaseMessages.length === 0) {
+      return Response.json({ error: "no messages for this phase" }, { status: 400 });
     }
 
-    // Role labels for readable transcript
-    const roleLabels: Record<string, string> = {
-      human: "创作者",
-      idea: "灵犀（点子）",
-      architect: "鲁班（结构）",
-      character: "画皮（角色）",
-      writer: "妙笔（写手）",
-      editor: "铁面（编辑）",
-      reader: "知音（读者）",
-      continuity: "掌故（连续性）",
-      context: "导入资料",
-    };
-
-    const PHASE_LABELS: Record<string, string> = {
-      conception: "构思",
-      bible: "世界与角色",
-      structure: "结构",
-      draft: "写作",
-      review: "审稿",
-      final: "定稿",
-    };
-
-    // Build transcript
-    const transcript = messages.map((m) => {
-      const label = roleLabels[m.role] ?? m.role;
-      return `**${label}**:\n${m.content}`;
+    // Build compacted transcript (human = full, agent = truncated)
+    const transcript = phaseMessages.map((m) => {
+      const label = ROLE_LABELS[m.role] ?? m.role;
+      const content = compactMessage(m.role, m.content);
+      return `**${label}**:\n${content}`;
     }).join("\n\n---\n\n");
+
+    // Include prior phase summaries as context (so LLM knows what's settled)
+    const priorContext: string[] = [];
+    const phaseIdx = PHASE_ORDER.indexOf(phase);
+    if (phaseIdx > 0) {
+      for (let i = 0; i < phaseIdx; i++) {
+        const priorPhase = PHASE_ORDER[i];
+        const priorPath = summaryPath(projectSlug, priorPhase);
+        if (existsSync(priorPath)) {
+          const priorContent = readFileSync(priorPath, "utf-8");
+          if (priorContent.trim()) {
+            priorContext.push(`## 前置：${PHASE_LABELS[priorPhase]}阶段总结（已确定）\n\n${priorContent}`);
+          }
+        }
+      }
+    }
 
     const phaseLabel = PHASE_LABELS[phase] ?? phase;
 
@@ -102,6 +140,7 @@ export async function POST(req: Request) {
 3. **结构化**：用清晰的 markdown 结构组织，方便后续阶段的 agent 快速理解
 4. **准确性**：不要添加讨论中没有的内容，不要臆测
 5. **可操作性**：标注已确定的内容（✓）和待定/有争议的内容（?）
+6. **去重**：被否决的方案只需简要记录"否决了X方案"，不要展开细节
 
 输出格式：
 # ${phaseLabel}阶段总结
@@ -121,8 +160,12 @@ export async function POST(req: Request) {
 ## 下一阶段需要关注的
 （对后续工作的建议）`;
 
+    const priorStr = priorContext.length > 0
+      ? `\n\n---\n以下是前置阶段的总结，供参考（已确定的内容不需重复）：\n\n${priorContext.join("\n\n")}`
+      : "";
+
     const result = await complete(provider, [
-      { role: "user", content: `以下是「${project.title}」项目「${phaseLabel}」阶段的完整讨论记录。请整理成阶段总结文档。\n\n${transcript}` },
+      { role: "user", content: `以下是「${project.title}」项目「${phaseLabel}」阶段的讨论记录（${phaseMessages.length}条消息）。请整理成阶段总结文档。${priorStr}\n\n---\n\n${transcript}` },
     ], { system: systemPrompt, maxTokens: 8192 });
 
     // Save to filesystem

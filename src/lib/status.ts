@@ -1,5 +1,6 @@
 /**
- * App Integration Protocol v2 — writes MasterMinds outputs to Mira feeds/apps/
+ * App status — writes data/status.json for Mira to read via registry.
+ * Each app manages its own output. Mira reads from here, never the other way.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, statSync } from "fs";
 import { join } from "path";
@@ -15,16 +16,18 @@ const FLOW_STEPS = [
 ];
 
 const DATA_DIR = join(process.cwd(), "data");
-const MIRA_APPS_DIR = join(process.cwd(), "..", "Mira", "feeds", "apps");
+const STATUS_PATH = join(DATA_DIR, "status.json");
 
-function readPhaseSummary(slug: string, phase: string): { content: string; updatedAt: string } | null {
-  const path = join(DATA_DIR, slug, "phases", `${phase}.md`);
-  if (!existsSync(path)) return null;
-  const content = readFileSync(path, "utf-8");
-  const stat = statSync(path);
-  // Truncate to 4000 chars per protocol
-  const trimmed = content.length > 4000 ? content.slice(0, 4000) + "\n…" : content;
-  return { content: trimmed, updatedAt: stat.mtime.toISOString() };
+function readPhaseSummaryMeta(slug: string, phase: string): { path: string; updatedAt: string; size: number } | null {
+  const filePath = join(DATA_DIR, slug, "phases", `${phase}.md`);
+  if (!existsSync(filePath)) return null;
+  const stat = statSync(filePath);
+  if (stat.size === 0) return null;
+  return {
+    path: `data/${slug}/phases/${phase}.md`,
+    updatedAt: stat.mtime.toISOString(),
+    size: stat.size,
+  };
 }
 
 export async function syncAppStatus() {
@@ -34,23 +37,24 @@ export async function syncAppStatus() {
       orderBy: { updatedAt: "desc" },
     });
 
-    if (projects.length === 0) return;
-
     const outputs: Record<string, unknown>[] = [];
 
     for (const p of projects) {
       const phaseIdx = FLOW_STEPS.findIndex((s) => s.key === p.phase);
       const phaseLabel = FLOW_STEPS[phaseIdx]?.label ?? p.phase;
 
-      // Collect completed phase summaries as highlights
-      const highlights: string[] = [];
+      const completedPhases: string[] = [];
+      const reports: { phase: string; label: string; path: string; updatedAt: string; size: number }[] = [];
+
       for (const step of FLOW_STEPS) {
-        if (readPhaseSummary(p.slug, step.key)) {
-          highlights.push(`${step.label}阶段总结已完成`);
+        const meta = readPhaseSummaryMeta(p.slug, step.key);
+        if (meta) {
+          completedPhases.push(`${step.label}阶段总结已完成`);
+          reports.push({ phase: step.key, label: step.label, ...meta });
         }
       }
 
-      // Output: progress
+      // Progress
       outputs.push({
         type: "progress",
         id: p.slug,
@@ -62,27 +66,25 @@ export async function syncAppStatus() {
           total: FLOW_STEPS.length,
           label: phaseLabel,
         },
-        highlights,
+        highlights: completedPhases,
       });
 
-      // Output: report per completed phase
-      for (const step of FLOW_STEPS) {
-        const summary = readPhaseSummary(p.slug, step.key);
-        if (summary) {
-          outputs.push({
-            type: "report",
-            id: `${p.slug}/${step.key}`,
-            title: `${p.title} — ${step.label}阶段总结`,
-            updatedAt: summary.updatedAt,
-            period: "phase",
-            content: summary.content,
-            parent: p.slug,
-          });
-        }
+      // Report references (paths, not content — Mira reads files directly)
+      for (const r of reports) {
+        outputs.push({
+          type: "report",
+          id: `${p.slug}/${r.phase}`,
+          title: `${p.title} — ${r.label}阶段总结`,
+          updatedAt: r.updatedAt,
+          period: "phase",
+          path: r.path,
+          size: r.size,
+          parent: p.slug,
+        });
       }
     }
 
-    const feed = {
+    const status = {
       app: "masterminds",
       version: 2,
       updatedAt: new Date().toISOString(),
@@ -90,13 +92,12 @@ export async function syncAppStatus() {
     };
 
     // Write atomically
-    if (!existsSync(MIRA_APPS_DIR)) {
-      mkdirSync(MIRA_APPS_DIR, { recursive: true });
+    if (!existsSync(DATA_DIR)) {
+      mkdirSync(DATA_DIR, { recursive: true });
     }
-    const targetPath = join(MIRA_APPS_DIR, "masterminds.json");
-    const tempPath = targetPath + ".tmp";
-    writeFileSync(tempPath, JSON.stringify(feed, null, 2), "utf-8");
-    renameSync(tempPath, targetPath);
+    const tempPath = STATUS_PATH + ".tmp";
+    writeFileSync(tempPath, JSON.stringify(status, null, 2), "utf-8");
+    renameSync(tempPath, STATUS_PATH);
   } catch (err) {
     console.error("syncAppStatus error:", err);
   }
