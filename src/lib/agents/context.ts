@@ -20,6 +20,8 @@ const ROLE_SKILLS: Record<string, string[]> = {
     "strategic-withholding",
     "objective-correlative",
     "image-systems",
+    "voice-consistency",
+    "compression",
   ],
   editor: [
     "scene-level-tension",
@@ -28,6 +30,8 @@ const ROLE_SKILLS: Record<string, string[]> = {
     "sentence-rhythm",
     "telling-detail",
     "iceberg-principle",
+    "voice-consistency",
+    "compression",
   ],
   idea: [
     "novum-extrapolation-chain",
@@ -200,7 +204,7 @@ function loadChapterSummaries(
   return parts.join("\n\n");
 }
 
-function loadSkills(role: RoleName): string {
+export function loadSkills(role: RoleName): string {
   const skillNames = ROLE_SKILLS[role] ?? [];
   if (skillNames.length === 0) return "";
 
