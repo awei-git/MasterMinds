@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 type AgentKey = "angle" | "structure" | "draft" | "edit" | "revise";
@@ -11,6 +11,11 @@ interface AgentBlock {
   text: string;
   round?: number;
   done: boolean;
+}
+
+interface UploadedFile {
+  name: string;
+  content: string;
 }
 
 const AGENT_COLORS: Record<AgentKey, string> = {
@@ -29,8 +34,18 @@ const AGENT_BG: Record<AgentKey, string> = {
   revise:    "border-emerald-300/30 bg-emerald-300/5",
 };
 
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target?.result as string ?? "");
+    reader.onerror = reject;
+    reader.readAsText(file, "utf-8");
+  });
+}
+
 export default function AutoWritePage() {
-  const [material, setMaterial] = useState("");
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [notes, setNotes] = useState("");
   const [maxRounds, setMaxRounds] = useState(2);
   const [provider, setProvider] = useState("claude-code");
   const [running, setRunning] = useState(false);
@@ -38,12 +53,62 @@ export default function AutoWritePage() {
   const [finalResult, setFinalResult] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [blocks]);
+
+  // Combine all file contents + notes into one material string
+  const buildMaterial = useCallback(() => {
+    const parts: string[] = [];
+    for (const f of files) {
+      parts.push(`=== ${f.name} ===\n${f.content}`);
+    }
+    if (notes.trim()) parts.push(`=== 备注/指令 ===\n${notes.trim()}`);
+    return parts.join("\n\n");
+  }, [files, notes]);
+
+  const hasContent = files.length > 0 || notes.trim().length > 0;
+
+  async function addFiles(fileList: FileList | File[]) {
+    const incoming = Array.from(fileList);
+    const loaded = await Promise.all(
+      incoming.map(async (f) => ({
+        name: f.name,
+        content: await readFileAsText(f),
+      }))
+    );
+    setFiles((prev) => {
+      // Deduplicate by name
+      const names = new Set(prev.map((f) => f.name));
+      return [...prev, ...loaded.filter((f) => !names.has(f.name))];
+    });
+  }
+
+  function removeFile(name: string) {
+    setFiles((prev) => prev.filter((f) => f.name !== name));
+  }
+
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function onDragLeave() {
+    setDragging(false);
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      await addFiles(e.dataTransfer.files);
+    }
+  }
 
   function addOrUpdateBlock(
     key: AgentKey,
@@ -53,7 +118,6 @@ export default function AutoWritePage() {
     round?: number
   ) {
     setBlocks((prev) => {
-      // Find matching block (same key + round)
       const idx = prev.findLastIndex(
         (b) => b.key === key && (round === undefined || b.round === round)
       );
@@ -72,7 +136,7 @@ export default function AutoWritePage() {
   }
 
   async function run() {
-    if (!material.trim() || running) return;
+    if (!hasContent || running) return;
     setRunning(true);
     setBlocks([]);
     setFinalResult("");
@@ -85,7 +149,7 @@ export default function AutoWritePage() {
       const res = await fetch("/api/autowrite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ material, provider, maxRounds }),
+        body: JSON.stringify({ material: buildMaterial(), provider, maxRounds }),
         signal: ctrl.signal,
       });
 
@@ -144,14 +208,89 @@ export default function AutoWritePage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Input panel */}
-        <div className="w-80 border-r border-border/50 flex flex-col p-4 gap-4 shrink-0">
+        <div className="w-80 border-r border-border/50 flex flex-col p-4 gap-3 shrink-0 overflow-y-auto">
+
+          {/* Drop zone */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-muted/60">原始材料</label>
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={() => !running && fileInputRef.current?.click()}
+              className={`
+                relative border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors
+                ${dragging
+                  ? "border-accent/60 bg-accent/10"
+                  : "border-border/40 hover:border-border-light/60 bg-surface/40 hover:bg-surface/60"
+                }
+                ${running ? "cursor-not-allowed opacity-50" : ""}
+              `}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.markdown,.csv,.json,.xml,.html,.js,.ts,.py,.rst,.tex"
+                className="hidden"
+                disabled={running}
+                onChange={(e) => e.target.files && addFiles(e.target.files)}
+              />
+              <div className="text-2xl mb-1.5">📄</div>
+              <div className="text-xs text-muted/60">
+                拖拽文件到这里，或点击选择
+              </div>
+              <div className="text-xs text-muted/30 mt-1">
+                支持 .txt .md .json 等文本格式
+              </div>
+            </div>
+          </div>
+
+          {/* File list */}
+          {files.length > 0 && (
+            <div className="flex flex-col gap-1">
+              {files.map((f) => (
+                <div
+                  key={f.name}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface/60 border border-border/40 group"
+                >
+                  <span className="text-xs text-muted/50 shrink-0">📄</span>
+                  <span className="text-xs text-foreground/70 flex-1 truncate" title={f.name}>
+                    {f.name}
+                  </span>
+                  <span className="text-xs text-muted/30 shrink-0">
+                    {f.content.length > 1000
+                      ? `${(f.content.length / 1000).toFixed(1)}k`
+                      : `${f.content.length}字`}
+                  </span>
+                  {!running && (
+                    <button
+                      onClick={() => removeFile(f.name)}
+                      className="text-muted/30 hover:text-red-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setFiles([])}
+                disabled={running}
+                className="text-xs text-muted/30 hover:text-muted/60 text-right transition-colors disabled:cursor-not-allowed"
+              >
+                清空全部
+              </button>
+            </div>
+          )}
+
+          {/* Notes textarea */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-muted/60">备注 / 额外指令（可选）</label>
             <textarea
-              value={material}
-              onChange={(e) => setMaterial(e.target.value)}
-              placeholder="把你的想法、笔记、草稿、素材都丢进来..."
-              className="h-64 resize-none bg-surface/60 border border-border/60 rounded-lg p-3 text-sm outline-none focus:border-accent/50 transition-colors placeholder:text-muted/30"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="写作方向、风格要求、不想要的内容..."
+              className="h-24 resize-none bg-surface/60 border border-border/60 rounded-lg p-3 text-sm outline-none focus:border-accent/50 transition-colors placeholder:text-muted/30"
               disabled={running}
             />
           </div>
@@ -197,7 +336,7 @@ export default function AutoWritePage() {
           ) : (
             <button
               onClick={run}
-              disabled={!material.trim()}
+              disabled={!hasContent}
               className="w-full py-2.5 rounded-lg bg-accent/20 text-accent border border-accent/30 text-sm hover:bg-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               开始创作
@@ -230,7 +369,7 @@ export default function AutoWritePage() {
         <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           {blocks.length === 0 && !running && !finalResult && (
             <div className="flex-1 flex items-center justify-center text-muted/30 text-sm">
-              把材料丢进去，点「开始创作」
+              拖入文件或输入备注，点「开始创作」
             </div>
           )}
 
