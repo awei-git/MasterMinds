@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { spawn } from "child_process";
 
 // --- Types ---
 
-export type ModelProvider = "claude" | "gpt" | "deepseek" | "gemini";
+export type ModelProvider = "claude" | "claude-code" | "gpt" | "deepseek" | "gemini";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -15,11 +16,17 @@ export interface LLMOptions {
   maxTokens?: number;
   temperature?: number;
   system?: string;
+  // Enable extended thinking for Claude. Default: false.
+  // Use for creative/strategic tasks (write, architect, review).
+  // Do NOT use for utility calls (summarize, continuity check, phase summary).
+  thinking?: boolean;
+  thinkingBudget?: number; // default 16000 when thinking=true
 }
 
 // Max output tokens per provider (including thinking/reasoning tokens)
 const MAX_OUTPUT: Record<ModelProvider, number> = {
   claude: 64000,
+  "claude-code": 64000,
   gpt: 32000,
   deepseek: 16000,
   gemini: 65536,
@@ -33,11 +40,23 @@ export interface StreamCallbacks {
 
 // --- Provider defaults ---
 
+// Primary creative model: Claude Opus via Max subscription (or claude-code for free via Claude Max)
+// Reviewer/critic models: GPT-5.4, Gemini 2.5 Pro, DeepSeek Reasoner
 const MODEL_DEFAULTS: Record<ModelProvider, string> = {
+  claude: "claude-opus-4-6",    // Claude API — primary writer, architect, chief editor
+  "claude-code": "claude-opus-4-6", // Claude Code CLI — uses Claude Max subscription, no API cost
+  gpt: "gpt-5.4",               // Parallel reviewer
+  deepseek: "deepseek-reasoner", // Parallel reviewer (reasoning)
+  gemini: "gemini-2.5-pro",     // Parallel reviewer (long context, consistency checks)
+};
+
+// Lighter model for internal utility calls (summarization, chapter summaries, continuity checks)
+export const MODEL_UTILITY: Record<ModelProvider, string> = {
   claude: "claude-sonnet-4-6",
-  gpt: "gpt-5.4",
-  deepseek: "deepseek-reasoner",
-  gemini: "gemini-3.1-pro",
+  "claude-code": "claude-sonnet-4-6",
+  gpt: "gpt-4.1-mini",
+  deepseek: "deepseek-chat",
+  gemini: "gemini-2.5-flash",
 };
 
 // --- Lazy-init clients ---
@@ -81,6 +100,87 @@ function getGemini(): OpenAI {
   return geminiClient;
 }
 
+// --- Claude Code CLI helpers ---
+
+/**
+ * Format messages array into a single prompt string for the Claude CLI.
+ * Multi-turn conversations are serialized as a transcript.
+ */
+function formatMessagesForCLI(messages: LLMMessage[]): string {
+  const relevant = messages.filter((m) => m.role !== "system");
+  if (relevant.length === 1) return relevant[0].content;
+  return relevant
+    .map((m) => `[${m.role === "user" ? "Human" : "Assistant"}]\n${m.content}`)
+    .join("\n\n");
+}
+
+function cliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CLAUDECODE; // prevent "nested session" error when running inside Claude Code
+  return env;
+}
+
+async function completeViaCLI(messages: LLMMessage[], opts: LLMOptions): Promise<string> {
+  const model = opts.model ?? MODEL_DEFAULTS["claude-code"];
+  const prompt = formatMessagesForCLI(messages);
+  const args = ["-p", "--output-format", "json", "--model", model, "--tools", ""];
+  if (opts.system) args.push("--system-prompt", opts.system);
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("claude", args, { env: cliEnv() });
+    let stdout = "";
+    let stderr = "";
+    child.stdin.write(prompt);
+    child.stdin.end();
+    child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`claude CLI error: ${stderr}`));
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        resolve(parsed.result ?? "");
+      } catch {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
+
+async function streamViaCLI(
+  messages: LLMMessage[],
+  opts: LLMOptions,
+  callbacks: StreamCallbacks
+): Promise<void> {
+  const model = opts.model ?? MODEL_DEFAULTS["claude-code"];
+  const prompt = formatMessagesForCLI(messages);
+  const args = ["-p", "--output-format", "text", "--model", model, "--tools", ""];
+  if (opts.system) args.push("--system-prompt", opts.system);
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("claude", args, { env: cliEnv() });
+    let fullText = "";
+    let stderr = "";
+    child.stdin.write(prompt);
+    child.stdin.end();
+    child.stdout.on("data", (d: Buffer) => {
+      const text = d.toString();
+      fullText += text;
+      callbacks.onText(text);
+    });
+    child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const err = new Error(`claude CLI error: ${stderr}`);
+        callbacks.onError?.(err);
+        reject(err);
+      } else {
+        callbacks.onDone(fullText);
+        resolve();
+      }
+    });
+  });
+}
+
 // --- Non-streaming completion ---
 
 export async function complete(
@@ -90,6 +190,10 @@ export async function complete(
 ): Promise<string> {
   const maxTokens = opts.maxTokens ?? MAX_OUTPUT[provider];
 
+  if (provider === "claude-code") {
+    return completeViaCLI(messages, opts);
+  }
+
   if (provider === "claude") {
     const client = getAnthropic();
     const userMessages = messages
@@ -98,11 +202,13 @@ export async function complete(
     const systemText =
       opts.system || messages.find((m) => m.role === "system")?.content;
 
+    const useThinking = opts.thinking ?? false;
     const response = await client.messages.create({
       model: opts.model ?? MODEL_DEFAULTS.claude,
       max_tokens: maxTokens,
-      temperature: 1, // required for extended thinking
-      thinking: { type: "enabled", budget_tokens: 16000 },
+      ...(useThinking
+        ? { temperature: 1, thinking: { type: "enabled", budget_tokens: opts.thinkingBudget ?? 16000 } }
+        : { temperature: opts.temperature ?? 0.7 }),
       ...(systemText ? { system: systemText } : {}),
       messages: userMessages,
     });
@@ -151,6 +257,10 @@ export async function stream(
   let fullText = "";
 
   try {
+    if (provider === "claude-code") {
+      return streamViaCLI(messages, opts, callbacks);
+    }
+
     if (provider === "claude") {
       const client = getAnthropic();
       const userMessages = messages
@@ -159,11 +269,13 @@ export async function stream(
       const systemText =
         opts.system || messages.find((m) => m.role === "system")?.content;
 
+      const useThinking = opts.thinking ?? false;
       const s = client.messages.stream({
         model: opts.model ?? MODEL_DEFAULTS.claude,
         max_tokens: maxTokens,
-        temperature: 1,
-        thinking: { type: "enabled", budget_tokens: 16000 },
+        ...(useThinking
+          ? { temperature: 1, thinking: { type: "enabled", budget_tokens: opts.thinkingBudget ?? 16000 } }
+          : { temperature: opts.temperature ?? 0.7 }),
         ...(systemText ? { system: systemText } : {}),
         messages: userMessages,
       });

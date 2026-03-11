@@ -75,14 +75,16 @@ export async function POST(req: Request) {
     projectSlug,
     role = "idea",
     message,
-    provider = "claude",
+    provider = "claude-code",
     skipSaveHuman = false,
+    skipSaveAgent = false,
   } = body as {
     projectSlug: string;
     role: RoleName;
     message: string;
     provider?: ModelProvider;
     skipSaveHuman?: boolean;
+    skipSaveAgent?: boolean;
   };
 
   if (!projectSlug || !message) {
@@ -155,6 +157,16 @@ export async function POST(req: Request) {
     }
   }
 
+  // When skipSaveHuman=true (follow-up agents in roundtable), the message wasn't saved to DB
+  // and may not be in llmMessages. Append it as the last user message so the LLM sees the instruction.
+  if (skipSaveHuman) {
+    llmMessages.push({ role: "user", content: ctx.messages[0]?.content ?? message });
+  }
+
+  // Enable extended thinking for creative/strategic roles; skip for utility roles
+  const THINKING_ROLES = new Set(["writer", "architect", "editor", "character", "idea"]);
+  const useThinking = provider === "claude" && THINKING_ROLES.has(role);
+
   // Stream response
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
@@ -162,7 +174,7 @@ export async function POST(req: Request) {
       let fullText = "";
 
       try {
-        await stream(provider, llmMessages, { system: ctx.system }, {
+        await stream(provider, llmMessages, { system: ctx.system, thinking: useThinking }, {
           onText(text) {
             fullText += text;
             controller.enqueue(
@@ -170,16 +182,18 @@ export async function POST(req: Request) {
             );
           },
           async onDone() {
-            // Save agent message
-            await prisma.message.create({
-              data: {
-                projectId: project.id,
-                role,
-                model: provider,
-                phase: project.phase ?? "conception",
-                content: fullText,
-              },
-            });
+            // Save agent message (skip for intermediate draft loop rounds)
+            if (!skipSaveAgent) {
+              await prisma.message.create({
+                data: {
+                  projectId: project.id,
+                  role,
+                  model: provider,
+                  phase: project.phase ?? "conception",
+                  content: fullText,
+                },
+              });
+            }
 
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             controller.close();

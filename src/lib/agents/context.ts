@@ -118,17 +118,69 @@ function loadAgentNotes(slug: string, role: RoleName): string {
   return readIfExists(path) ?? "";
 }
 
-function loadBibleSummary(slug: string): string {
+function loadBibleSummary(slug: string, characters?: string[]): string {
   const parts: string[] = [];
   const dir = join(projectDir(slug), "bible");
 
   const world = readIfExists(join(dir, "world.md"));
   if (world) parts.push("# World\n" + world);
 
+  // Load individual character files — critical for writer/character consistency
+  const charsDir = join(dir, "characters");
+  if (existsSync(charsDir)) {
+    const charFiles = readdirSync(charsDir)
+      .filter((f) => f.endsWith(".md") && f !== "relationships.md");
+    // If specific characters requested, filter; otherwise load all
+    const toLoad = characters?.length
+      ? charFiles.filter((f) => characters.some((c) => f.toLowerCase().includes(c.toLowerCase())))
+      : charFiles;
+    for (const f of toLoad) {
+      const content = readIfExists(join(charsDir, f));
+      if (content) parts.push(`# Character: ${f.replace(".md", "")}\n${content}`);
+    }
+  }
+
   const relationships = readIfExists(join(dir, "characters", "relationships.md"));
   if (relationships) parts.push("# Character Relationships\n" + relationships);
 
   return parts.join("\n\n");
+}
+
+function loadContinuityData(slug: string): string {
+  const parts: string[] = [];
+  const dir = join(projectDir(slug), "continuity");
+
+  const facts = readIfExists(join(dir, "facts.json"));
+  if (facts) {
+    try {
+      const parsed = JSON.parse(facts);
+      parts.push("# Established Facts\n```json\n" + JSON.stringify(parsed, null, 2) + "\n```");
+    } catch { parts.push("# Established Facts\n" + facts); }
+  }
+
+  const timeline = readIfExists(join(dir, "timeline.json"));
+  if (timeline) {
+    try {
+      const parsed = JSON.parse(timeline);
+      parts.push("# Story Timeline\n```json\n" + JSON.stringify(parsed, null, 2) + "\n```");
+    } catch { parts.push("# Story Timeline\n" + timeline); }
+  }
+
+  const states = readIfExists(join(dir, "character-states.json"));
+  if (states) {
+    try {
+      const parsed = JSON.parse(states);
+      parts.push("# Character States\n```json\n" + JSON.stringify(parsed, null, 2) + "\n```");
+    } catch { parts.push("# Character States\n" + states); }
+  }
+
+  return parts.join("\n\n");
+}
+
+function loadGlobalMemory(): string {
+  const path = join(DATA_DIR, "global-memory.md");
+  const content = readIfExists(path);
+  return content ? "# Global Memory (Cross-Project Preferences)\n" + content : "";
 }
 
 function loadChapterSummaries(
@@ -214,26 +266,34 @@ export function buildContext(req: ContextRequest): {
   const role = loadRole(req.role);
   const meta = loadMeta(req.projectSlug);
 
-  // Build system prompt: role definition + skills + project memory + agent notes
+  // Build system prompt in priority order:
+  // 1. Role identity (who I am)
+  // 2. Global memory (cross-project user preferences — override generic defaults)
+  // 3. Project memory + style guide (project-specific rules — override skills)
+  // 4. Agent's own notes (my accumulated knowledge on this project)
+  // 5. Phase summaries (what happened before)
+  // 6. Skills + framework (craft reference — lowest priority, most generic)
   const systemParts: string[] = [role.systemPrompt];
 
-  // Inject relevant skills for this role
-  const skills = loadSkills(req.role);
-  if (skills) systemParts.push(skills);
-
-  // Inject writing framework based on project type
-  const framework = loadFramework(req.projectSlug);
-  if (framework) systemParts.push(framework);
+  const globalMemory = loadGlobalMemory();
+  if (globalMemory) systemParts.push(globalMemory);
 
   const projectMemory = loadProjectMemory(req.projectSlug);
   if (projectMemory) systemParts.push(projectMemory);
+
+  const agentNotes = loadAgentNotes(req.projectSlug, req.role);
+  if (agentNotes) systemParts.push("# My Notes\n" + agentNotes);
 
   // Load summaries from completed phases
   const phaseSummaries = loadPhaseSummaries(req.projectSlug, req.phase);
   if (phaseSummaries) systemParts.push(phaseSummaries);
 
-  const agentNotes = loadAgentNotes(req.projectSlug, req.role);
-  if (agentNotes) systemParts.push("# My Notes\n" + agentNotes);
+  // Skills and framework last — generic craft reference, overridden by project-specific above
+  const skills = loadSkills(req.role);
+  if (skills) systemParts.push(skills);
+
+  const framework = loadFramework(req.projectSlug);
+  if (framework) systemParts.push(framework);
 
   if (meta) {
     systemParts.push(
@@ -273,7 +333,7 @@ export function buildContext(req: ContextRequest): {
   const contextParts: string[] = [];
 
   if (req.chapter !== undefined) {
-    // For chapter-related tasks, load bible summary + nearby chapter summaries
+    // For chapter-related tasks, load bible (all character files) + nearby chapter summaries
     const bible = loadBibleSummary(req.projectSlug);
     if (bible) contextParts.push(bible);
 
@@ -294,6 +354,13 @@ export function buildContext(req: ContextRequest): {
     );
     const outline = readIfExists(outlinePath);
     if (outline) contextParts.push("# Scene Card for This Chapter\n" + outline);
+  }
+
+  // Continuity agent always gets the full continuity data
+  // Character/writer agents also get it for awareness
+  if (req.role === "continuity" || req.role === "writer" || req.role === "character") {
+    const continuity = loadContinuityData(req.projectSlug);
+    if (continuity) contextParts.push(continuity);
   }
 
   if (req.extraContext) contextParts.push(req.extraContext);

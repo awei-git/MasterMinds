@@ -10,6 +10,7 @@ interface Message {
   phase?: string;
   content: string;
   createdAt: string;
+  intermediate?: boolean; // collapsed intermediate draft/review rounds
 }
 
 interface Round {
@@ -85,7 +86,7 @@ export default function ProjectPage() {
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const [error, setError] = useState("");
   // activeRole is unused — roundtable mode uses PHASE_PANEL instead
-  const [activeProvider, setActiveProvider] = useState("gpt");
+  const [activeProvider, setActiveProvider] = useState("claude-code");
   const [currentPhase, setCurrentPhase] = useState("conception");
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipInput, setClipInput] = useState("");
@@ -101,6 +102,9 @@ export default function ProjectPage() {
   const [summaryModal, setSummaryModal] = useState<{ phase: string; text: string; editing: boolean } | null>(null);
   const [collapsedRounds, setCollapsedRounds] = useState<Set<string>>(new Set());
   const [roundSummaries, setRoundSummaries] = useState<Record<string, string>>({});
+  // Writer pause: after each 300-500 word chunk in draft phase, stop and wait for human decision
+  const [writerPause, setWriterPause] = useState(false);
+  const [writerFeedback, setWriterFeedback] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -250,7 +254,12 @@ export default function ProjectPage() {
       if (res.ok) {
         const data = await res.json();
         setPhaseSummaries((prev) => ({ ...prev, [phase]: data.content }));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        console.warn(`Phase summary generation failed for ${phase}:`, data.error || res.statusText);
       }
+    } catch (err) {
+      console.warn(`Phase summary generation error for ${phase}:`, err);
     } finally {
       setSummaryLoading(false);
     }
@@ -287,6 +296,10 @@ export default function ProjectPage() {
         const data = await res.json();
         setPhaseSummaries((prev) => ({ ...prev, [phase]: data.content }));
         setSummaryModal({ phase, text: data.content, editing: false });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setSummaryModal(null);
+        alert(`总结生成失败: ${data.error || res.statusText}`);
       }
     } finally {
       setSummaryLoading(false);
@@ -395,7 +408,7 @@ export default function ProjectPage() {
   }, [streaming, streamText]);
 
   // Stream one agent's response, return the text
-  async function streamOneAgent(role: string, message: string, skipSaveHuman = false): Promise<string> {
+  async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false): Promise<string> {
     setStreamingRole(role);
     setStreamText("");
     setThinkingSeconds(0);
@@ -414,6 +427,7 @@ export default function ProjectPage() {
           message,
           provider: activeProvider,
           skipSaveHuman,
+          skipSaveAgent,
         }),
       });
 
@@ -458,11 +472,33 @@ export default function ProjectPage() {
     }
   }
 
+  // Phase-aware follow-up prompts for non-first agents in the roundtable
+  // previousRoles: which agents have already spoken in this round
+  function getFollowUpPrompt(phase: string, role: string, previousRoles: string[]): string {
+    const category = ROLE_META[role]?.category ?? role;
+
+    if (phase === "draft" || phase === "review") {
+      // editor reviews what writer wrote
+      if (role === "editor") {
+        return "（妙笔刚完成了写作/改稿。请按你的审稿流程审稿，指出硬伤、结构问题、语言问题，给出具体修改动作。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。）";
+      }
+      // writer revises based on editor's review
+      if (role === "writer" && previousRoles.includes("editor")) {
+        return "（铁面刚完成了审稿。请根据审稿意见修改稿件，输出修改后的完整文本，并逐条说明采纳或拒绝的理由。）";
+      }
+    }
+
+    // Default: generic discussion prompt
+    return `（以上是创作者的消息和其他agent的讨论。请以${category}的专业视角，补充你的意见、提出不同角度、或回应之前agent的观点。简洁有力，不要重复别人说过的。）`;
+  }
+
   // Roundtable: send to all agents at the table
   async function send(text?: string) {
     const msg = text ?? input.trim();
     if (!msg || streaming) return;
     setInput("");
+    setWriterPause(false); // always clear pause when user sends a new message
+    setWriterFeedback("");
     setStreaming(true);
     setError("");
     setSaveStatus("saving");
@@ -478,22 +514,26 @@ export default function ProjectPage() {
     // Get the panel of agents for current phase
     const panel = PHASE_PANEL[currentPhase] ?? ["idea"];
     let sawPhaseComplete = false;
+    const previousRoles: string[] = [];
+    const isDraftLoop = currentPhase === "draft" || currentPhase === "review";
+    const MAX_REVISION_ROUNDS = 3;
 
     try {
+      // --- Standard panel pass (all phases) ---
       for (let i = 0; i < panel.length; i++) {
         const agentRole = panel[i];
         const isFirst = i === 0;
 
-        // First agent gets the user's actual message
-        // Subsequent agents get a prompt to respond to the discussion
         const agentMsg = isFirst
           ? msg
-          : `（以上是创作者的消息和其他agent的讨论。请以${ROLE_META[agentRole]?.category ?? agentRole}的专业视角，补充你的意见、提出不同角度、或回应之前agent的观点。简洁有力，不要重复别人说过的。）`;
+          : getFollowUpPrompt(currentPhase, agentRole, previousRoles);
 
         const fullText = await streamOneAgent(agentRole, agentMsg, !isFirst);
+        previousRoles.push(agentRole);
 
         const phaseComplete = fullText.includes("[PHASE_COMPLETE]");
-        const displayText = fullText.replace(/\n?\[PHASE_COMPLETE\]\n?/g, "").trim();
+        const approved = fullText.includes("[APPROVED]");
+        const displayText = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
 
         setStreamText("");
         setMessages((prev) => [
@@ -508,6 +548,70 @@ export default function ProjectPage() {
         ]);
 
         if (phaseComplete) sawPhaseComplete = true;
+
+        // --- Draft phase: pause after writer output and wait for human decision ---
+        // Human must approve each chunk before continuing or triggering review.
+        if (currentPhase === "draft" && agentRole === "writer") {
+          setWriterPause(true);
+          break; // Don't auto-chain editor — human decides when to trigger review
+        }
+
+        // --- Draft loop: writer→editor done, now loop revisions if not approved ---
+        if (isDraftLoop && agentRole === "editor" && !approved) {
+          // Accumulate intermediate conversation so each agent sees the full revision history
+          // Start with the editor's first review (already in DB, but we need it for subsequent rounds)
+          let revisionContext = `\n\n---\n【第1轮审稿・铁面】:\n${displayText}`;
+
+          for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
+            // Writer revises — include full revision history in the prompt
+            const writerBasePrompt = getFollowUpPrompt(currentPhase, "writer", previousRoles);
+            const writerPromptWithContext = `${writerBasePrompt}\n\n以下是之前的修改过程，请基于最新一轮审稿意见修改：${revisionContext}`;
+            const writerText = await streamOneAgent("writer", writerPromptWithContext, true, true);
+            previousRoles.push("writer");
+            const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+            revisionContext += `\n\n---\n【第${round + 2}轮改稿・妙笔】:\n${writerDisplay}`;
+
+            setStreamText("");
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `agent-${Date.now()}-writer-r${round}`,
+                role: "writer",
+                model: activeProvider,
+                content: writerDisplay,
+                createdAt: new Date().toISOString(),
+                intermediate: true,
+              },
+            ]);
+
+            // Editor reviews again — include full revision history
+            const editorBasePrompt = getFollowUpPrompt(currentPhase, "editor", previousRoles);
+            const editorPromptWithContext = `${editorBasePrompt}\n\n以下是完整的修改过程：${revisionContext}`;
+            const editorText = await streamOneAgent("editor", editorPromptWithContext, true, true);
+            previousRoles.push("editor");
+            const editorApproved = editorText.includes("[APPROVED]");
+            const editorDisplay = editorText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+            revisionContext += `\n\n---\n【第${round + 2}轮审稿・铁面】:\n${editorDisplay}`;
+
+            setStreamText("");
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `agent-${Date.now()}-editor-r${round}`,
+                role: "editor",
+                model: activeProvider,
+                content: editorDisplay,
+                createdAt: new Date().toISOString(),
+                intermediate: true,
+              },
+            ]);
+
+            if (editorApproved) {
+              if (writerText.includes("[PHASE_COMPLETE]")) sawPhaseComplete = true;
+              break;
+            }
+          }
+        }
       }
 
       setSaveStatus("saved");
@@ -516,6 +620,108 @@ export default function ProjectPage() {
     } catch (err) {
       console.error("Chat error:", err);
       setError(err instanceof Error ? err.message : "发送失败，请重试");
+      setSaveStatus("idle");
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  // Continue writing: writer produces next 300-500 word chunk (or revises current one)
+  async function continueWriting(feedback?: string) {
+    if (streaming) return;
+    setWriterPause(false);
+    setWriterFeedback("");
+    setStreaming(true);
+    setError("");
+    setSaveStatus("saving");
+
+    const prompt = feedback?.trim()
+      ? `请根据以下意见修改刚才那段，输出修改后的完整段落：${feedback.trim()}`
+      : "继续写下一个beat（300-500字）。衔接好上文节奏，写下一个情节单元，暂停在合适的断点。";
+
+    try {
+      const fullText = await streamOneAgent("writer", prompt, true);
+      const displayText = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+      setStreamText("");
+      setMessages((prev) => [...prev, {
+        id: `agent-${Date.now()}-writer`,
+        role: "writer",
+        model: activeProvider,
+        content: displayText,
+        createdAt: new Date().toISOString(),
+      }]);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+      setWriterPause(true); // pause again after each chunk
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "写作失败，请重试");
+      setSaveStatus("idle");
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  // Trigger review: hand off to editor, then auto-run writer→editor revision loop
+  async function triggerReview() {
+    if (streaming) return;
+    setWriterPause(false);
+    setStreaming(true);
+    setError("");
+    setSaveStatus("saving");
+    const MAX_REVISION_ROUNDS = 3;
+
+    try {
+      const editorPrompt = getFollowUpPrompt("review", "editor", ["writer"]);
+      const editorText = await streamOneAgent("editor", editorPrompt, true);
+      const approved = editorText.includes("[APPROVED]");
+      const editorDisplay = editorText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+      setStreamText("");
+      setMessages((prev) => [...prev, {
+        id: `agent-${Date.now()}-editor`,
+        role: "editor",
+        model: activeProvider,
+        content: editorDisplay,
+        createdAt: new Date().toISOString(),
+      }]);
+
+      if (!approved) {
+        let revisionContext = `\n\n---\n【第1轮审稿・铁面】:\n${editorDisplay}`;
+        const previousRoles = ["writer", "editor"];
+
+        for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
+          const writerPrompt = `${getFollowUpPrompt("review", "writer", previousRoles)}\n\n以下是之前的修改过程，请基于最新一轮审稿意见修改：${revisionContext}`;
+          const writerText = await streamOneAgent("writer", writerPrompt, true, true);
+          const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+          revisionContext += `\n\n---\n【第${round + 2}轮改稿・妙笔】:\n${writerDisplay}`;
+          previousRoles.push("writer");
+          setStreamText("");
+          setMessages((prev) => [...prev, {
+            id: `agent-${Date.now()}-writer-r${round}`,
+            role: "writer", model: activeProvider, content: writerDisplay,
+            createdAt: new Date().toISOString(), intermediate: true,
+          }]);
+
+          const editorRound = `${getFollowUpPrompt("review", "editor", previousRoles)}\n\n以下是完整的修改过程：${revisionContext}`;
+          const editorRoundText = await streamOneAgent("editor", editorRound, true, true);
+          const editorRoundApproved = editorRoundText.includes("[APPROVED]");
+          const editorRoundDisplay = editorRoundText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+          revisionContext += `\n\n---\n【第${round + 2}轮审稿・铁面】:\n${editorRoundDisplay}`;
+          previousRoles.push("editor");
+          setStreamText("");
+          setMessages((prev) => [...prev, {
+            id: `agent-${Date.now()}-editor-r${round}`,
+            role: "editor", model: activeProvider, content: editorRoundDisplay,
+            createdAt: new Date().toISOString(), intermediate: true,
+          }]);
+
+          if (editorRoundApproved) break;
+        }
+      }
+
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "审稿失败，请重试");
       setSaveStatus("idle");
     } finally {
       setStreaming(false);
@@ -655,10 +861,11 @@ export default function ProjectPage() {
               onChange={(e) => setActiveProvider(e.target.value)}
               className="bg-surface/80 border border-border/60 rounded-lg px-2.5 py-1.5 text-sm outline-none hover:border-border-light focus:border-accent/40 transition-colors"
             >
+              <option value="claude-code">Claude Max (免费)</option>
               <option value="gpt">GPT</option>
               <option value="deepseek">DeepSeek</option>
               <option value="gemini">Gemini</option>
-              <option value="claude">Claude</option>
+              <option value="claude">Claude API</option>
             </select>
           </div>
         </div>
@@ -782,6 +989,29 @@ export default function ProjectPage() {
                           const meta = ROLE_META[m.role] ?? {
                             label: m.role, category: m.role, color: "text-muted", icon: "?",
                           };
+
+                          // Intermediate draft/review rounds — collapsed by default
+                          if (m.intermediate) {
+                            const roundLabel = m.role === "writer" ? "改稿" : "审稿";
+                            const preview = m.content.slice(0, 80).replace(/\n/g, " ");
+                            return (
+                              <div key={m.id} className="group/msg">
+                                <details className="glass rounded-xl border border-foreground/5 overflow-hidden opacity-50">
+                                  <summary className="px-4 py-2 cursor-pointer flex items-center gap-2 text-sm hover:bg-surface-hover/30 transition-colors">
+                                    <span className="text-xs">{meta.icon}</span>
+                                    <span className={`text-xs ${meta.color}`}>{meta.label}·{roundLabel}</span>
+                                    <span className="text-muted/25 text-xs truncate flex-1">{preview}…</span>
+                                    <span className="text-[11px] text-muted/20">中间稿</span>
+                                  </summary>
+                                  <div className="px-4 py-3 border-t border-border/30 max-h-80 overflow-y-auto">
+                                    <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-foreground/50">
+                                      {m.content}
+                                    </div>
+                                  </div>
+                                </details>
+                              </div>
+                            );
+                          }
 
                           // Context messages — collapsible card
                           if (m.role === "context") {
@@ -965,33 +1195,87 @@ export default function ProjectPage() {
           <div className="shrink-0 px-8 py-4 relative">
             <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent" />
             <div className="max-w-3xl mx-auto">
-              <div className="flex gap-3 items-end">
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="说点什么..."
-                  disabled={streaming}
-                  rows={1}
-                  className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] disabled:opacity-40 resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
-                />
-                <button
-                  onClick={() => send()}
-                  disabled={streaming || !input.trim()}
-                  className="px-6 py-3 bg-accent/80 hover:bg-accent disabled:bg-surface/40 disabled:text-muted/30 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(94,138,133,0.25)] shrink-0"
-                >
-                  发送
-                </button>
-              </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-[11px] text-muted/20">
-                  ⌘+Enter 发送
-                </span>
-                <span className="text-[11px] text-muted/25">
-                  {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((r) => ROLE_META[r]?.icon).join(" ")} · {PROVIDER_LABELS[activeProvider]}
-                </span>
-              </div>
+
+              {/* Writer pause controls — shown after each chunk in draft phase */}
+              {writerPause ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-emerald-400/60 font-medium tracking-wide">✍ 妙笔暂停</span>
+                    <span className="text-[11px] text-muted/30">— 审阅这段，选择下一步</span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => continueWriting()}
+                      disabled={streaming}
+                      className="px-4 py-2 bg-accent/70 hover:bg-accent disabled:opacity-30 rounded-lg text-sm font-medium transition-all"
+                    >
+                      继续写
+                    </button>
+                    <button
+                      onClick={() => triggerReview()}
+                      disabled={streaming}
+                      className="px-4 py-2 bg-sky-600/60 hover:bg-sky-600/80 disabled:opacity-30 rounded-lg text-sm font-medium transition-all"
+                    >
+                      → 去审稿
+                    </button>
+                    <button
+                      onClick={() => continueWriting("请重写刚才那段，换一个思路和角度，保持字数相近。")}
+                      disabled={streaming}
+                      className="px-4 py-2 bg-surface/60 hover:bg-surface border border-border/40 disabled:opacity-30 rounded-lg text-sm text-muted/70 transition-all"
+                    >
+                      重写
+                    </button>
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <textarea
+                      value={writerFeedback}
+                      onChange={(e) => setWriterFeedback(e.target.value)}
+                      placeholder="修改意见：节奏太慢、对话不够、换个开头…（可选）"
+                      disabled={streaming}
+                      rows={1}
+                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-2.5 outline-none focus:border-accent/30 text-[14px] disabled:opacity-40 resize-none min-h-[40px] max-h-[120px] transition-all placeholder:text-muted/20"
+                    />
+                    <button
+                      onClick={() => continueWriting(writerFeedback)}
+                      disabled={streaming || !writerFeedback.trim()}
+                      className="px-4 py-2.5 bg-surface/60 border border-border/60 hover:border-accent/40 disabled:opacity-30 rounded-xl text-sm text-muted/60 transition-all shrink-0"
+                    >
+                      修改
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-3 items-end">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="说点什么..."
+                      disabled={streaming}
+                      rows={1}
+                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] disabled:opacity-40 resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
+                    />
+                    <button
+                      onClick={() => send()}
+                      disabled={streaming || !input.trim()}
+                      className="px-6 py-3 bg-accent/80 hover:bg-accent disabled:bg-surface/40 disabled:text-muted/30 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(94,138,133,0.25)] shrink-0"
+                    >
+                      发送
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-[11px] text-muted/20">
+                      ⌘+Enter 发送
+                    </span>
+                    <span className="text-[11px] text-muted/25">
+                      {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((r) => ROLE_META[r]?.icon).join(" ")} · {PROVIDER_LABELS[activeProvider]}
+                    </span>
+                  </div>
+                </>
+              )}
+
             </div>
           </div>
         </div>

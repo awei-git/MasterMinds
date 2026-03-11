@@ -90,18 +90,27 @@ export async function POST(req: Request) {
     }
 
     // Filter messages by phase
-    // Legacy messages (phase=NULL) belong to "conception"
+    // Legacy messages (phase=NULL) belong to early phases (conception/bible/structure)
     const allMessages = await prisma.message.findMany({
       where: { projectId: project.id, discussionId: null },
       orderBy: { createdAt: "asc" },
     });
 
-    const phaseMessages = allMessages.filter((m) => {
+    let phaseMessages = allMessages.filter((m) => {
       if (phase === "conception") {
         return !m.phase || m.phase === "conception";
       }
       return m.phase === phase;
     });
+
+    // Fallback: if no messages tagged for this phase, include untagged (legacy) messages
+    // This handles projects where early phases weren't tagged in the DB
+    if (phaseMessages.length === 0) {
+      const untagged = allMessages.filter((m) => !m.phase);
+      if (untagged.length > 0) {
+        phaseMessages = untagged;
+      }
+    }
 
     if (phaseMessages.length === 0) {
       return Response.json({ error: "no messages for this phase" }, { status: 400 });
@@ -167,6 +176,10 @@ export async function POST(req: Request) {
     const result = await complete(provider, [
       { role: "user", content: `以下是「${project.title}」项目「${phaseLabel}」阶段的讨论记录（${phaseMessages.length}条消息）。请整理成阶段总结文档。${priorStr}\n\n---\n\n${transcript}` },
     ], { system: systemPrompt, maxTokens: 8192 });
+
+    if (!result || !result.trim()) {
+      return Response.json({ error: "LLM returned empty summary" }, { status: 500 });
+    }
 
     // Save to filesystem
     const dir = phasesDir(projectSlug);
