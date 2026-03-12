@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-type AgentKey = "angle" | "structure" | "draft" | "edit" | "revise";
+type AgentKey = "angle" | "structure" | "draft" | "edit" | "revise" | "reflect" | "reader";
 
 interface AgentBlock {
   key: AgentKey;
@@ -24,6 +24,8 @@ const AGENT_COLORS: Record<AgentKey, string> = {
   draft:     "text-emerald-400",
   edit:      "text-red-400",
   revise:    "text-emerald-300",
+  reflect:   "text-purple-400",
+  reader:    "text-cyan-400",
 };
 
 const AGENT_BG: Record<AgentKey, string> = {
@@ -32,6 +34,8 @@ const AGENT_BG: Record<AgentKey, string> = {
   draft:     "border-emerald-400/30 bg-emerald-400/5",
   edit:      "border-red-400/30 bg-red-400/5",
   revise:    "border-emerald-300/30 bg-emerald-300/5",
+  reflect:   "border-purple-400/30 bg-purple-400/5",
+  reader:    "border-cyan-400/30 bg-cyan-400/5",
 };
 
 function readFileAsText(file: File): Promise<string> {
@@ -203,7 +207,7 @@ export default function AutoWritePage() {
       <header className="border-b border-border/50 px-6 py-4 flex items-center gap-4">
         <Link href="/" className="text-muted/60 hover:text-muted text-sm transition-colors">← 项目</Link>
         <h1 className="font-semibold text-lg">AutoWrite · 一键成稿</h1>
-        <span className="text-xs text-muted/40 ml-auto">灵犀 → 鲁班 → 妙笔 → 铁面 → 循环迭代</span>
+        <span className="text-xs text-muted/40 ml-auto">灵犀 → 鲁班 → 妙笔 ↔ 铁面 → 知音</span>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -352,16 +356,18 @@ export default function AutoWritePage() {
           {/* Pipeline legend */}
           <div className="mt-auto pt-4 border-t border-border/30 flex flex-col gap-1.5">
             <span className="text-xs text-muted/40 mb-1">流水线</span>
-            {(["angle","structure","draft","edit","revise"] as AgentKey[]).map((k) => (
+            {(["angle","structure","draft","edit","revise","reflect","reader"] as AgentKey[]).map((k) => (
               <div key={k} className={`text-xs px-2 py-1 rounded border ${AGENT_BG[k]} ${AGENT_COLORS[k]}`}>
                 {k === "angle" && "灵犀 · 找角度"}
                 {k === "structure" && "鲁班 · 定结构"}
                 {k === "draft" && "妙笔 · 写稿"}
                 {k === "edit" && "铁面 · 审稿"}
                 {k === "revise" && "妙笔 · 修改"}
+                {k === "reflect" && "铁面 · 反思"}
+                {k === "reader" && "知音 · 评估"}
               </div>
             ))}
-            <div className="text-xs text-muted/30 mt-1">铁面 ↔ 妙笔 循环至 PASS</div>
+            <div className="text-xs text-muted/30 mt-1">铁面 ↔ 妙笔 循环至 PASS → 知音评估</div>
           </div>
         </div>
 
@@ -389,7 +395,7 @@ export default function AutoWritePage() {
           ))}
 
           {finalResult && (
-            <div className="rounded-lg border border-accent/30 bg-accent/5 p-5">
+            <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-accent text-sm font-medium">成稿</span>
                 <button
@@ -399,7 +405,7 @@ export default function AutoWritePage() {
                   {copied ? "已复制" : "复制"}
                 </button>
               </div>
-              <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed">
+              <div className="whitespace-pre-wrap prose-paper">
                 {finalResult}
               </div>
             </div>

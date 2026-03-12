@@ -105,6 +105,11 @@ export default function ProjectPage() {
   // Writer pause: after each 300-500 word chunk in draft phase, stop and wait for human decision
   const [writerPause, setWriterPause] = useState(false);
   const [writerFeedback, setWriterFeedback] = useState("");
+  // Revision loop interrupt: allows user to inject feedback mid-loop
+  const [revisionPaused, setRevisionPaused] = useState(false);
+  const [revisionFeedbackInput, setRevisionFeedbackInput] = useState("");
+  const [allProjects, setAllProjects] = useState<{ slug: string; title: string; phase?: string }[]>([]);
+  const revisionResolveRef = useRef<((feedback: string) => void) | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,6 +118,7 @@ export default function ProjectPage() {
     fetch(`/api/projects`)
       .then((r) => r.json())
       .then((projects: { slug: string; title: string; phase?: string }[]) => {
+        setAllProjects(projects);
         const p = projects.find((p) => p.slug === slug);
         if (p) {
           setProjectTitle(p.title);
@@ -408,7 +414,7 @@ export default function ProjectPage() {
   }, [streaming, streamText]);
 
   // Stream one agent's response, return the text
-  async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false): Promise<string> {
+  async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false, cleanContext = false): Promise<string> {
     setStreamingRole(role);
     setStreamText("");
     setThinkingSeconds(0);
@@ -428,6 +434,7 @@ export default function ProjectPage() {
           provider: activeProvider,
           skipSaveHuman,
           skipSaveAgent,
+          cleanContext,
         }),
       });
 
@@ -472,6 +479,34 @@ export default function ProjectPage() {
     }
   }
 
+  // Extract past revision reflections from messages to feed into writer context
+  function getPastReflections(): string {
+    const reflections = messages
+      .filter((m) => m.content.startsWith("📋 **修稿反思**"))
+      .slice(-3) // last 3 reflections
+      .map((m) => m.content.replace("📋 **修稿反思**\n\n", "").trim());
+    if (reflections.length === 0) return "";
+    return `\n\n---\n\n## 往期修稿反思（避免重复犯错）\n\n${reflections.join("\n\n---\n\n")}`;
+  }
+
+  // Pause revision loop and wait for user to either submit feedback or click continue.
+  // Returns the feedback string (empty string = no feedback, just continue).
+  function waitForRevisionFeedback(): Promise<string> {
+    return new Promise<string>((resolve) => {
+      revisionResolveRef.current = resolve;
+      setRevisionPaused(true);
+      setRevisionFeedbackInput("");
+    });
+  }
+
+  function submitRevisionFeedback(feedback: string) {
+    setRevisionPaused(false);
+    if (revisionResolveRef.current) {
+      revisionResolveRef.current(feedback);
+      revisionResolveRef.current = null;
+    }
+  }
+
   // Phase-aware follow-up prompts for non-first agents in the roundtable
   // previousRoles: which agents have already spoken in this round
   function getFollowUpPrompt(phase: string, role: string, previousRoles: string[]): string {
@@ -480,11 +515,11 @@ export default function ProjectPage() {
     if (phase === "draft" || phase === "review") {
       // editor reviews what writer wrote
       if (role === "editor") {
-        return "（妙笔刚完成了写作/改稿。请按你的审稿流程审稿，指出硬伤、结构问题、语言问题，给出具体修改动作。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。）";
+        return "（妙笔刚完成了写作/改稿。请按你的审稿流程审稿。注意：必须先列出【守住清单】——标记写得好的段落/句子，这些改稿时不可删改。然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。）";
       }
       // writer revises based on editor's review
       if (role === "writer" && previousRoles.includes("editor")) {
-        return "（铁面刚完成了审稿。请根据审稿意见修改稿件，输出修改后的完整文本，并逐条说明采纳或拒绝的理由。）";
+        return "（铁面刚完成了审稿。请根据审稿意见修改稿件。\n\n⚠️ 改稿铁律：\n1. 【守住清单】里的内容一字不动\n2. 只改铁面明确指出的问题，不要动其他地方\n3. 修改方向是写得更好，不是写得更短更安全\n4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括\n5. 改完的稿件不应比原稿短超过10%\n\n输出修改后的完整文本，并附采纳清单。）";
       }
     }
 
@@ -558,18 +593,42 @@ export default function ProjectPage() {
 
         // --- Draft loop: writer→editor done, now loop revisions if not approved ---
         if (isDraftLoop && agentRole === "editor" && !approved) {
-          // Accumulate intermediate conversation so each agent sees the full revision history
-          // Start with the editor's first review (already in DB, but we need it for subsequent rounds)
-          let revisionContext = `\n\n---\n【第1轮审稿・铁面】:\n${displayText}`;
+          let latestEditorReview = displayText;
 
           for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
-            // Writer revises — include full revision history in the prompt
-            const writerBasePrompt = getFollowUpPrompt(currentPhase, "writer", previousRoles);
-            const writerPromptWithContext = `${writerBasePrompt}\n\n以下是之前的修改过程，请基于最新一轮审稿意见修改：${revisionContext}`;
-            const writerText = await streamOneAgent("writer", writerPromptWithContext, true, true);
+            // Pause and let user inject feedback
+            const humanFeedback = await waitForRevisionFeedback();
+            if (humanFeedback) {
+              setMessages((prev) => [...prev, {
+                id: `human-feedback-${Date.now()}`,
+                role: "human",
+                content: humanFeedback,
+                createdAt: new Date().toISOString(),
+              }]);
+            }
+
+            const feedbackSection = humanFeedback
+              ? `\n\n---\n\n## 创作者意见（优先级最高）\n\n${humanFeedback}`
+              : "";
+            const writerCleanPrompt = `请根据以下审稿意见修改稿件。
+
+⚠️ 改稿铁律：
+1. 【守住清单】里的内容一字不动
+2. 只改铁面明确指出的问题，不要动其他地方
+3. 修改方向是写得更好，不是写得更短更安全
+4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
+5. 改完的稿件不应比原稿短超过10%
+
+输出修改后的完整文本，并附采纳清单。
+
+---
+
+## 审稿意见
+
+${latestEditorReview}${feedbackSection}${getPastReflections()}`;
+            const writerText = await streamOneAgent("writer", writerCleanPrompt, true, true, true);
             previousRoles.push("writer");
             const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-            revisionContext += `\n\n---\n【第${round + 2}轮改稿・妙笔】:\n${writerDisplay}`;
 
             setStreamText("");
             setMessages((prev) => [
@@ -584,14 +643,18 @@ export default function ProjectPage() {
               },
             ]);
 
-            // Editor reviews again — include full revision history
-            const editorBasePrompt = getFollowUpPrompt(currentPhase, "editor", previousRoles);
-            const editorPromptWithContext = `${editorBasePrompt}\n\n以下是完整的修改过程：${revisionContext}`;
-            const editorText = await streamOneAgent("editor", editorPromptWithContext, true, true);
+            const editorCleanPrompt = `请审稿。按你的审稿流程审核以下稿件。注意：必须先列出【守住清单】，然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。
+
+---
+
+## 稿件
+
+${writerDisplay}`;
+            const editorText = await streamOneAgent("editor", editorCleanPrompt, true, true, true);
             previousRoles.push("editor");
             const editorApproved = editorText.includes("[APPROVED]");
             const editorDisplay = editorText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-            revisionContext += `\n\n---\n【第${round + 2}轮审稿・铁面】:\n${editorDisplay}`;
+            latestEditorReview = editorDisplay;
 
             setStreamText("");
             setMessages((prev) => [
@@ -606,11 +669,52 @@ export default function ProjectPage() {
               },
             ]);
 
+            // Reader scores the revised draft (clean context)
+            const readerScorePrompt2 = `请快速评分。只输出评分表和一句话感受，不要写完整阅读报告。
+
+---
+
+## 稿件
+
+${writerDisplay}`;
+            const readerText2 = await streamOneAgent("reader", readerScorePrompt2, true, true, true);
+            const readerDisplay2 = readerText2.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+            setStreamText("");
+            setMessages((prev) => [...prev, {
+              id: `agent-${Date.now()}-reader-r${round}`,
+              role: "reader", model: activeProvider, content: readerDisplay2,
+              createdAt: new Date().toISOString(), intermediate: true,
+            }]);
+
             if (editorApproved) {
               if (writerText.includes("[PHASE_COMPLETE]")) sawPhaseComplete = true;
               break;
             }
           }
+
+          // Reflection after revision loop
+          const reflectPrompt = `刚才完成了一轮修稿循环。请用不超过150字写一份简短的反思备忘录，格式如下：
+
+### 反复出现的问题
+- [1-3条]
+
+### 有效的改进
+- [1-3条]
+
+### 下次写作注意
+- [给妙笔的具体提醒，1-3条]
+
+只输出备忘录本身，不要多余的话。`;
+          const reflectText = await streamOneAgent("editor", reflectPrompt, true, true, true);
+          const reflectDisplay = reflectText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+          setStreamText("");
+          setMessages((prev) => [...prev, {
+            id: `agent-${Date.now()}-reflection`,
+            role: "editor",
+            model: activeProvider,
+            content: `📋 **修稿反思**\n\n${reflectDisplay}`,
+            createdAt: new Date().toISOString(),
+          }]);
         }
       }
 
@@ -685,15 +789,43 @@ export default function ProjectPage() {
       }]);
 
       if (!approved) {
-        let revisionContext = `\n\n---\n【第1轮审稿・铁面】:\n${editorDisplay}`;
-        const previousRoles = ["writer", "editor"];
+        let latestEditorReview = editorDisplay;
 
         for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
-          const writerPrompt = `${getFollowUpPrompt("review", "writer", previousRoles)}\n\n以下是之前的修改过程，请基于最新一轮审稿意见修改：${revisionContext}`;
-          const writerText = await streamOneAgent("writer", writerPrompt, true, true);
+          // Pause and let user inject feedback before next revision round
+          const humanFeedback = await waitForRevisionFeedback();
+          if (humanFeedback) {
+            // Show user's feedback as a message
+            setMessages((prev) => [...prev, {
+              id: `human-feedback-${Date.now()}`,
+              role: "human",
+              content: humanFeedback,
+              createdAt: new Date().toISOString(),
+            }]);
+          }
+
+          // Writer revises with CLEAN CONTEXT
+          const feedbackSection = humanFeedback
+            ? `\n\n---\n\n## 创作者意见（优先级最高）\n\n${humanFeedback}`
+            : "";
+          const writerCleanPrompt = `请根据以下审稿意见修改稿件。
+
+⚠️ 改稿铁律：
+1. 【守住清单】里的内容一字不动
+2. 只改铁面明确指出的问题，不要动其他地方
+3. 修改方向是写得更好，不是写得更短更安全
+4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
+5. 改完的稿件不应比原稿短超过10%
+
+输出修改后的完整文本，并附采纳清单。
+
+---
+
+## 审稿意见
+
+${latestEditorReview}${feedbackSection}${getPastReflections()}`;
+          const writerText = await streamOneAgent("writer", writerCleanPrompt, true, true, true);
           const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          revisionContext += `\n\n---\n【第${round + 2}轮改稿・妙笔】:\n${writerDisplay}`;
-          previousRoles.push("writer");
           setStreamText("");
           setMessages((prev) => [...prev, {
             id: `agent-${Date.now()}-writer-r${round}`,
@@ -701,12 +833,18 @@ export default function ProjectPage() {
             createdAt: new Date().toISOString(), intermediate: true,
           }]);
 
-          const editorRound = `${getFollowUpPrompt("review", "editor", previousRoles)}\n\n以下是完整的修改过程：${revisionContext}`;
-          const editorRoundText = await streamOneAgent("editor", editorRound, true, true);
+          // Editor reviews with CLEAN CONTEXT
+          const editorCleanPrompt = `请审稿。按你的审稿流程审核以下稿件。注意：必须先列出【守住清单】，然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。
+
+---
+
+## 稿件
+
+${writerDisplay}`;
+          const editorRoundText = await streamOneAgent("editor", editorCleanPrompt, true, true, true);
           const editorRoundApproved = editorRoundText.includes("[APPROVED]");
           const editorRoundDisplay = editorRoundText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          revisionContext += `\n\n---\n【第${round + 2}轮审稿・铁面】:\n${editorRoundDisplay}`;
-          previousRoles.push("editor");
+          latestEditorReview = editorRoundDisplay;
           setStreamText("");
           setMessages((prev) => [...prev, {
             id: `agent-${Date.now()}-editor-r${round}`,
@@ -714,9 +852,50 @@ export default function ProjectPage() {
             createdAt: new Date().toISOString(), intermediate: true,
           }]);
 
+          // Reader scores the revised draft (clean context)
+          const readerScorePrompt = `请快速评分。只输出评分表和一句话感受，不要写完整阅读报告。
+
+---
+
+## 稿件
+
+${writerDisplay}`;
+          const readerText = await streamOneAgent("reader", readerScorePrompt, true, true, true);
+          const readerDisplay = readerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+          setStreamText("");
+          setMessages((prev) => [...prev, {
+            id: `agent-${Date.now()}-reader-r${round}`,
+            role: "reader", model: activeProvider, content: readerDisplay,
+            createdAt: new Date().toISOString(), intermediate: true,
+          }]);
+
           if (editorRoundApproved) break;
         }
       }
+
+      // Reflection: editor summarizes what was learned this revision cycle
+      const reflectionPrompt = `刚才完成了一轮修稿循环。请用不超过150字写一份简短的反思备忘录，格式如下：
+
+### 反复出现的问题
+- [1-3条]
+
+### 有效的改进
+- [1-3条]
+
+### 下次写作注意
+- [给妙笔的具体提醒，1-3条]
+
+只输出备忘录本身，不要多余的话。`;
+      const reflectionText = await streamOneAgent("editor", reflectionPrompt, true, true, true);
+      const reflectionDisplay = reflectionText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+      setStreamText("");
+      setMessages((prev) => [...prev, {
+        id: `agent-${Date.now()}-reflection`,
+        role: "editor",
+        model: activeProvider,
+        content: `📋 **修稿反思**\n\n${reflectionDisplay}`,
+        createdAt: new Date().toISOString(),
+      }]);
 
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
@@ -746,105 +925,186 @@ export default function ProjectPage() {
     {} as Record<string, number>
   );
 
+  const PHASE_LABELS_SHORT: Record<string, string> = {
+    conception: "构思",
+    bible: "角色",
+    structure: "结构",
+    draft: "写作",
+    review: "审稿",
+    final: "定稿",
+  };
+
   return (
-    <main className="h-screen bg-background text-foreground flex flex-col overflow-hidden">
-      {/* Header */}
-      <header className="shrink-0 px-6 py-3 flex items-center justify-between relative">
-        <div className="flex items-center gap-4">
-          <a
-            href="/"
-            className="text-muted/50 hover:text-foreground transition-colors text-sm"
-          >
-            ← 神仙会
+    <main className="h-screen bg-background text-foreground flex overflow-hidden">
+      {/* Left sidebar — navigation + flow */}
+      <aside className="w-[280px] shrink-0 border-r border-border/40 bg-background-warm flex flex-col hidden lg:flex">
+        {/* Logo / Home */}
+        <div className="px-4 py-4">
+          <a href="/" className="flex items-center gap-2 text-muted/50 hover:text-foreground transition-colors">
+            <span className="font-brush text-xl text-gradient">神仙会</span>
           </a>
-          <span className="text-border-light/40">/</span>
-          <span className="font-bold text-lg text-gradient-subtle">
-            {projectTitle || decodeURIComponent(slug)}
-          </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Save status */}
-          <span className="text-[11px] text-muted/30 mr-1">
-            {saveStatus === "saving" && "保存中..."}
-            {saveStatus === "saved" && "✓ 已保存"}
-          </span>
+        <div className="h-px bg-border/30" />
 
-          {/* Chat management menu */}
-          <div className="relative">
-            <button
-              onClick={() => { setShowChatMenu(!showChatMenu); setConfirmClear(false); }}
-              className="px-2 py-1 text-muted/40 hover:text-foreground text-sm transition-colors rounded-lg hover:bg-surface-hover/50"
-              title="对话管理"
+        {/* Project list */}
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+          <h3 className="text-[10px] text-foreground/25 font-medium tracking-wider uppercase px-2 mb-2">项目</h3>
+          {allProjects.map((p) => (
+            <a
+              key={p.slug}
+              href={`/project/${p.slug}`}
+              className={`block px-3 py-2 rounded-lg text-sm transition-all truncate ${
+                p.slug === slug
+                  ? "bg-accent/10 text-accent font-medium border border-accent/20"
+                  : "text-foreground/50 hover:text-foreground/80 hover:bg-surface-hover/40"
+              }`}
             >
-              ···
+              <div className="truncate">{p.title}</div>
+              {p.phase && (
+                <span className="text-[10px] text-foreground/25">{PHASE_LABELS_SHORT[p.phase] ?? p.phase}</span>
+              )}
+            </a>
+          ))}
+        </div>
+
+        <div className="h-px bg-border/30" />
+
+        {/* Flow progress */}
+        <div className="px-3 py-4 space-y-1">
+          <h3 className="text-[10px] text-foreground/25 font-medium tracking-wider uppercase px-2 mb-2">创作流程</h3>
+          {FLOW_STEPS.map((step) => {
+            const isActive = step.key === currentPhase;
+            const isPast = FLOW_STEPS.findIndex((s) => s.key === currentPhase) >
+              FLOW_STEPS.findIndex((s) => s.key === step.key);
+            const stepMeta = ROLE_META[step.agent];
+
+            return (
+              <button
+                key={step.key}
+                onClick={() => setPhase(step.key)}
+                className={`w-full text-left px-3 py-2 rounded-lg text-[13px] transition-all flex items-center gap-2 ${
+                  isActive
+                    ? "bg-accent/10 text-accent font-medium"
+                    : isPast
+                    ? "text-foreground/35 hover:bg-surface-hover/40"
+                    : "text-foreground/20 hover:bg-surface-hover/30"
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    isActive
+                      ? "bg-accent shadow-[0_0_6px_rgba(94,138,133,0.5)]"
+                      : isPast
+                      ? "bg-foreground/20"
+                      : "bg-foreground/10"
+                  }`}
+                />
+                <span>{stepMeta?.icon} {step.label}</span>
+                {isPast && <span className="text-[9px] text-foreground/15 ml-auto">✓</span>}
+              </button>
+            );
+          })}
+          {FLOW_STEPS.findIndex((s) => s.key === currentPhase) < FLOW_STEPS.length - 1 && (
+            <button
+              onClick={startPhaseTransition}
+              disabled={summaryLoading}
+              className="mt-2 w-full px-3 py-2 text-[12px] text-accent/70 hover:text-accent bg-accent/5 hover:bg-accent/10 border border-accent/15 rounded-lg transition-all disabled:opacity-50"
+            >
+              {summaryLoading ? "总结中..." : "下一阶段 →"}
             </button>
-            {showChatMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => { setShowChatMenu(false); setConfirmClear(false); }} />
-                <div className="absolute right-0 top-full mt-1 z-50 w-48 glass rounded-xl border border-border-light/50 py-1.5 shadow-xl">
-                  {!confirmClear ? (
-                    <>
-                      <button
-                        onClick={() => { fileInputRef.current?.click(); }}
-                        className="w-full text-left px-4 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-hover/50 transition-colors"
-                      >
-                        导入 Markdown
-                      </button>
-                      <button
-                        onClick={exportMarkdown}
-                        disabled={messages.length === 0}
-                        className="w-full text-left px-4 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-hover/50 disabled:text-muted/20 disabled:hover:bg-transparent transition-colors"
-                      >
-                        导出为 Markdown
-                      </button>
-                      <div className="h-px bg-border/40 my-1" />
-                      <button
-                        onClick={() => setConfirmClear(true)}
-                        disabled={messages.length === 0}
-                        className="w-full text-left px-4 py-2 text-sm text-muted hover:text-red-400 hover:bg-surface-hover/50 disabled:text-muted/20 disabled:hover:bg-transparent transition-colors"
-                      >
-                        清空全部对话
-                      </button>
-                      <div className="h-px bg-border/40 my-1" />
-                      <div className="px-4 py-1.5 text-[11px] text-muted/30">
-                        {messages.length} 条消息
-                      </div>
-                    </>
-                  ) : (
-                    <div className="px-4 py-2">
-                      <p className="text-sm text-red-400/80 mb-2">确认清空所有对话？此操作不可撤销。</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={clearAllMessages}
-                          className="px-3 py-1 text-xs text-red-400 bg-red-900/20 rounded-lg border border-red-500/20"
-                        >
-                          确认清空
-                        </button>
-                        <button
-                          onClick={() => setConfirmClear(false)}
-                          className="px-3 py-1 text-xs text-muted bg-surface-hover/60 rounded-lg"
-                        >
-                          取消
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+          )}
+        </div>
+      </aside>
+
+      {/* Center — chat area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Slim top bar */}
+        <header className="shrink-0 px-6 py-2.5 flex items-center justify-between relative">
+          <div className="flex items-center gap-3">
+            <span className="font-bold text-gradient-subtle">
+              {projectTitle || decodeURIComponent(slug)}
+            </span>
+            <span className="text-[11px] text-muted/30">
+              {saveStatus === "saving" && "保存中..."}
+              {saveStatus === "saved" && "✓ 已保存"}
+            </span>
           </div>
 
-          {/* Roundtable panel */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-muted/40">圆桌</span>
+          <div className="flex items-center gap-3">
+            {/* Chat management menu */}
+            <div className="relative">
+              <button
+                onClick={() => { setShowChatMenu(!showChatMenu); setConfirmClear(false); }}
+                className="px-2 py-1 text-muted/40 hover:text-foreground text-sm transition-colors rounded-lg hover:bg-surface-hover/50"
+                title="对话管理"
+              >
+                ···
+              </button>
+              {showChatMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => { setShowChatMenu(false); setConfirmClear(false); }} />
+                  <div className="absolute right-0 top-full mt-1 z-50 w-48 glass rounded-xl border border-border-light/50 py-1.5 shadow-xl">
+                    {!confirmClear ? (
+                      <>
+                        <button
+                          onClick={() => { fileInputRef.current?.click(); }}
+                          className="w-full text-left px-4 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-hover/50 transition-colors"
+                        >
+                          导入 Markdown
+                        </button>
+                        <button
+                          onClick={exportMarkdown}
+                          disabled={messages.length === 0}
+                          className="w-full text-left px-4 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-hover/50 disabled:text-muted/20 disabled:hover:bg-transparent transition-colors"
+                        >
+                          导出为 Markdown
+                        </button>
+                        <div className="h-px bg-border/40 my-1" />
+                        <button
+                          onClick={() => setConfirmClear(true)}
+                          disabled={messages.length === 0}
+                          className="w-full text-left px-4 py-2 text-sm text-muted hover:text-red-400 hover:bg-surface-hover/50 disabled:text-muted/20 disabled:hover:bg-transparent transition-colors"
+                        >
+                          清空全部对话
+                        </button>
+                        <div className="h-px bg-border/40 my-1" />
+                        <div className="px-4 py-1.5 text-[11px] text-muted/30">
+                          {messages.length} 条消息
+                        </div>
+                      </>
+                    ) : (
+                      <div className="px-4 py-2">
+                        <p className="text-sm text-red-400/80 mb-2">确认清空所有对话？此操作不可撤销。</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={clearAllMessages}
+                            className="px-3 py-1 text-xs text-red-400 bg-red-900/20 rounded-lg border border-red-500/20"
+                          >
+                            确认清空
+                          </button>
+                          <button
+                            onClick={() => setConfirmClear(false)}
+                            className="px-3 py-1 text-xs text-muted bg-surface-hover/60 rounded-lg"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Roundtable icons */}
             <div className="flex gap-1">
               {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((role) => {
                 const meta = ROLE_META[role];
                 return (
                   <span
                     key={role}
-                    className="text-[12px] px-2 py-1 glass rounded-lg"
+                    className="text-[12px] px-1.5 py-0.5 glass rounded-md"
                     title={meta?.label}
                   >
                     {meta?.icon}
@@ -852,32 +1112,23 @@ export default function ProjectPage() {
                 );
               })}
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-muted/40">模型</span>
+            {/* Model selector */}
             <select
               value={activeProvider}
               onChange={(e) => setActiveProvider(e.target.value)}
-              className="bg-surface/80 border border-border/60 rounded-lg px-2.5 py-1.5 text-sm outline-none hover:border-border-light focus:border-accent/40 transition-colors"
+              className="bg-surface/80 border border-border/60 rounded-lg px-2 py-1 text-[13px] outline-none hover:border-border-light focus:border-accent/40 transition-colors"
             >
-              <option value="claude-code">Claude Max (免费)</option>
+              <option value="claude-code">Claude Max</option>
               <option value="gpt">GPT</option>
               <option value="deepseek">DeepSeek</option>
               <option value="gemini">Gemini</option>
               <option value="claude">Claude API</option>
             </select>
           </div>
-        </div>
 
-        {/* Bottom gradient line */}
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border-light/50 to-transparent" />
-      </header>
-
-      {/* Main content - split layout */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Chat area — 2/3 */}
-        <div className="w-2/3 flex flex-col min-w-0">
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border-light/40 to-transparent" />
+        </header>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-6 space-y-6">
@@ -1077,7 +1328,11 @@ export default function ProjectPage() {
                                     </button>
                                   </div>
                                 </div>
-                                <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85">
+                                <div className={
+                                  m.role === "writer"
+                                    ? "whitespace-pre-wrap prose-paper"
+                                    : "whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85"
+                                }>
                                   {m.content}
                                 </div>
                               </div>
@@ -1107,9 +1362,13 @@ export default function ProjectPage() {
                       {PROVIDER_LABELS[activeProvider]}
                     </span>
                   </div>
-                  <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85">
+                  <div className={
+                    streamingRole === "writer"
+                      ? "whitespace-pre-wrap prose-paper"
+                      : "whitespace-pre-wrap text-[15px] leading-[1.8] text-foreground/85"
+                  }>
                     {streamText}
-                    <span className="animate-pulse text-accent">▍</span>
+                    <span className={`animate-pulse ${streamingRole === "writer" ? "text-[#5e8a85]" : "text-accent"}`}>▍</span>
                   </div>
                 </div>
                 );
@@ -1196,8 +1455,42 @@ export default function ProjectPage() {
             <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent" />
             <div className="max-w-3xl mx-auto">
 
-              {/* Writer pause controls — shown after each chunk in draft phase */}
-              {writerPause ? (
+              {/* Revision loop pause — user can inject feedback between rounds */}
+              {revisionPaused ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-sky-400/60 font-medium tracking-wide">📝 改稿进行中</span>
+                    <span className="text-[11px] text-muted/30">— 审阅铁面的意见，可以加入你的想法</span>
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <textarea
+                      value={revisionFeedbackInput}
+                      onChange={(e) => setRevisionFeedbackInput(e.target.value)}
+                      placeholder="你的意见（可选）：这段对话保留、那个意象别删、节奏再快一点…"
+                      rows={2}
+                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-2.5 outline-none focus:border-accent/30 text-[14px] resize-none min-h-[48px] max-h-[120px] transition-all placeholder:text-muted/20"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          submitRevisionFeedback(revisionFeedbackInput.trim());
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => submitRevisionFeedback(revisionFeedbackInput.trim())}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        revisionFeedbackInput.trim()
+                          ? "bg-accent/70 hover:bg-accent"
+                          : "bg-surface/60 border border-border/40 text-muted/60 hover:border-accent/40"
+                      }`}
+                    >
+                      {revisionFeedbackInput.trim() ? "提交意见并继续" : "继续（不加意见）"}
+                    </button>
+                  </div>
+                </div>
+              ) : writerPause ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
                     <span className="text-[11px] text-emerald-400/60 font-medium tracking-wide">✍ 妙笔暂停</span>
@@ -1280,74 +1573,9 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        {/* Right: Sidebar — 1/3 */}
-        <aside className="w-1/3 border-l border-border/40 bg-background-warm shrink-0 overflow-y-auto hidden lg:block">
-          <div className="p-6 space-y-7">
-            {/* Flow progress */}
-            <div>
-              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
-                创作流程
-              </h3>
-              <div className="space-y-1">
-                {FLOW_STEPS.map((step) => {
-                  const isActive = step.key === currentPhase;
-                  const isPast = FLOW_STEPS.findIndex((s) => s.key === currentPhase) >
-                    FLOW_STEPS.findIndex((s) => s.key === step.key);
-                  const stepMeta = ROLE_META[step.agent];
-
-                  return (
-                    <button
-                      key={step.key}
-                      onClick={() => setPhase(step.key)}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition-all ${
-                        isActive
-                          ? "bg-accent/10 border border-accent/25"
-                          : isPast
-                          ? "text-foreground/35 hover:bg-surface-hover/40"
-                          : "text-foreground/20 hover:bg-surface-hover/30"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className={`w-2 h-2 rounded-full transition-colors ${
-                            isActive
-                              ? "bg-accent shadow-[0_0_8px_rgba(94,138,133,0.5)]"
-                              : isPast
-                              ? "bg-foreground/20"
-                              : "bg-foreground/10"
-                          }`}
-                        />
-                        <span
-                          className={
-                            isActive
-                              ? "text-accent font-medium"
-                              : ""
-                          }
-                        >
-                          {stepMeta?.icon} {step.label}
-                        </span>
-                        {isPast && <span className="text-[10px] text-foreground/20 ml-auto">done</span>}
-                      </div>
-                      {isActive && (
-                        <p className="text-[12px] text-foreground/35 mt-1 ml-[18px]">
-                          {step.description}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              {FLOW_STEPS.findIndex((s) => s.key === currentPhase) < FLOW_STEPS.length - 1 && (
-                <button
-                  onClick={startPhaseTransition}
-                  disabled={summaryLoading}
-                  className="mt-3 w-full px-3.5 py-2.5 text-sm text-accent/80 hover:text-accent bg-accent/8 hover:bg-accent/15 border border-accent/20 rounded-xl transition-all disabled:opacity-50"
-                >
-                  {summaryLoading ? "生成总结中..." : "进入下一阶段 →"}
-                </button>
-              )}
-            </div>
-
+        {/* Right: Sidebar — tools */}
+        <aside className="w-[320px] shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto hidden lg:block">
+          <div className="p-5 space-y-6">
             {/* Roundtable members */}
             <div>
               <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
@@ -1610,7 +1838,7 @@ export default function ProjectPage() {
             )}
           </div>
         </aside>
-      </div>
+
       {/* Hidden file input for markdown import */}
       <input
         ref={fileInputRef}

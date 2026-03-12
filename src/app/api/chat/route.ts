@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     provider = "claude-code",
     skipSaveHuman = false,
     skipSaveAgent = false,
+    cleanContext = false,
   } = body as {
     projectSlug: string;
     role: RoleName;
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
     provider?: ModelProvider;
     skipSaveHuman?: boolean;
     skipSaveAgent?: boolean;
+    cleanContext?: boolean; // revision mode: skip chat history, only send message as-is
   };
 
   if (!projectSlug || !message) {
@@ -112,12 +114,6 @@ export async function POST(req: Request) {
     });
   }
 
-  // Load full conversation history
-  const history = await prisma.message.findMany({
-    where: { projectId: project.id, discussionId: null },
-    orderBy: { createdAt: "asc" },
-  });
-
   // Build agent context (includes system prompt, skills, project memory, bible, etc.)
   const ctx = buildContext({
     projectSlug,
@@ -126,41 +122,52 @@ export async function POST(req: Request) {
     phase: project.phase ?? undefined,
   });
 
-  // When phase summaries exist, only send recent messages to LLM
-  // (summaries in system prompt cover earlier context)
-  const useFullHistory = !hasPhaseSummaries(projectSlug, project.phase ?? undefined);
-  const relevantHistory = useFullHistory ? history : history.slice(-40);
+  let llmMessages: { role: "user" | "assistant"; content: string }[];
 
-  // Convert history to LLM messages
-  const llmMessages = relevantHistory.map((m) => {
-    if (m.role === "context") {
-      // Imported context — send as user message with clear label
-      const label = m.model && m.model !== "import" ? m.model : "导入的参考资料";
+  if (cleanContext) {
+    // Clean revision mode: NO chat history. Only system prompt + the structured message.
+    // The message already contains everything the agent needs (draft + revision checklist).
+    llmMessages = [{ role: "user", content: ctx.messages[0]?.content ?? message }];
+  } else {
+    // Normal mode: load chat history
+    const history = await prisma.message.findMany({
+      where: { projectId: project.id, discussionId: null },
+      orderBy: { createdAt: "asc" },
+    });
+
+    // When phase summaries exist, only send recent messages to LLM
+    // (summaries in system prompt cover earlier context)
+    const useFullHistory = !hasPhaseSummaries(projectSlug, project.phase ?? undefined);
+    const relevantHistory = useFullHistory ? history : history.slice(-40);
+
+    // Convert history to LLM messages
+    llmMessages = relevantHistory.map((m) => {
+      if (m.role === "context") {
+        const label = m.model && m.model !== "import" ? m.model : "导入的参考资料";
+        return {
+          role: "user" as const,
+          content: `[${label}]\n\n${m.content}`,
+        };
+      }
       return {
-        role: "user" as const,
-        content: `[${label}]\n\n${m.content}`,
+        role: (m.role === "human" ? "user" : "assistant") as "user" | "assistant",
+        content: m.content,
       };
-    }
-    return {
-      role: (m.role === "human" ? "user" : "assistant") as "user" | "assistant",
-      content: m.content,
-    };
-  });
+    });
 
-  // Inject buildContext's extra context (bible, chapter summaries, etc.) into the first user message
-  if (ctx.messages.length > 0 && ctx.messages[0].content !== message) {
-    // ctx.messages[0] contains the task + extra context slices — replace the last user message
-    // to include the enriched version
-    const lastUserIdx = llmMessages.findLastIndex((m) => m.role === "user");
-    if (lastUserIdx >= 0) {
-      llmMessages[lastUserIdx] = { role: "user", content: ctx.messages[0].content };
+    // Inject buildContext's extra context (bible, chapter summaries, etc.) into the first user message
+    if (ctx.messages.length > 0 && ctx.messages[0].content !== message) {
+      const lastUserIdx = llmMessages.findLastIndex((m) => m.role === "user");
+      if (lastUserIdx >= 0) {
+        llmMessages[lastUserIdx] = { role: "user", content: ctx.messages[0].content };
+      }
     }
-  }
 
-  // When skipSaveHuman=true (follow-up agents in roundtable), the message wasn't saved to DB
-  // and may not be in llmMessages. Append it as the last user message so the LLM sees the instruction.
-  if (skipSaveHuman) {
-    llmMessages.push({ role: "user", content: ctx.messages[0]?.content ?? message });
+    // When skipSaveHuman=true (follow-up agents in roundtable), the message wasn't saved to DB
+    // and may not be in llmMessages. Append it as the last user message so the LLM sees the instruction.
+    if (skipSaveHuman) {
+      llmMessages.push({ role: "user", content: ctx.messages[0]?.content ?? message });
+    }
   }
 
   // Enable extended thinking for creative/strategic roles; skip for utility roles

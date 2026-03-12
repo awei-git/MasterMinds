@@ -104,6 +104,41 @@ body {
   box-shadow: 0 0 20px rgba(94, 138, 133, 0.06), 0 0 40px rgba(94, 138, 133, 0.03);
 }
 
+/* A4 manuscript paper for prose */
+.prose-paper {
+  background: linear-gradient(180deg, #f8f5f0 0%, #f3efe8 100%);
+  color: #2a2420;
+  font-family: var(--font-serif-cn), "Songti SC", "Noto Serif SC", Georgia, serif;
+  padding: 3rem 3.5rem;
+  border-radius: 2px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    inset 0 0 80px rgba(0, 0, 0, 0.02);
+  max-width: 42rem;
+  margin: 0 auto;
+  line-height: 2;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  position: relative;
+}
+
+.prose-paper::selection {
+  background: rgba(94, 138, 133, 0.25);
+  color: #2a2420;
+}
+
+/* Left margin line like manuscript paper */
+.prose-paper::before {
+  content: "";
+  position: absolute;
+  left: 2.5rem;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(180, 60, 60, 0.08);
+}
+
 /* Subtle noise texture overlay */
 .noise::before {
   content: "";

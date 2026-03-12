@@ -22,6 +22,7 @@ const ROLE_SKILLS: Record<string, string[]> = {
     "image-systems",
     "voice-consistency",
     "compression",
+    "surgical-revision",
   ],
   editor: [
     "scene-level-tension",
@@ -102,6 +103,10 @@ export function hasPhaseSummaries(slug: string, currentPhase?: string): boolean 
 
 function loadPhaseSummaries(slug: string, currentPhase?: string): string {
   const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
+  const PHASE_LABELS: Record<string, string> = {
+    conception: "构思", bible: "世界与角色", structure: "结构",
+    draft: "写作", review: "审稿", final: "定稿",
+  };
   const dir = join(projectDir(slug), "phases");
   const parts: string[] = [];
 
@@ -110,11 +115,20 @@ function loadPhaseSummaries(slug: string, currentPhase?: string): string {
   for (let i = 0; i < currentIdx; i++) {
     const phase = PHASE_ORDER[i];
     const content = readIfExists(join(dir, `${phase}.md`));
-    if (content) parts.push(content);
+    if (content) parts.push(`## ${PHASE_LABELS[phase] ?? phase}阶段\n\n${content}`);
   }
 
   if (parts.length === 0) return "";
-  return "# Previous Phase Summaries\n\n" + parts.join("\n\n---\n\n");
+  return `# 已锁定的阶段决策（硬约束）
+
+⚠️ 以下是前序阶段已确定的内容。这些决策具有约束力：
+- 构思阶段确定的主题、核心冲突、logline → 不可偏离
+- 世界与角色阶段确定的设定、人物、规则 → 不可矛盾
+- 结构阶段确定的节拍、大纲 → 不可跳过或重排
+
+如需修改已锁定的决策，必须明确告知创作者并获得确认，不能静默偏离。
+
+` + parts.join("\n\n---\n\n");
 }
 
 function loadAgentNotes(slug: string, role: RoleName): string {
@@ -272,10 +286,10 @@ export function buildContext(req: ContextRequest): {
 
   // Build system prompt in priority order:
   // 1. Role identity (who I am)
-  // 2. Global memory (cross-project user preferences — override generic defaults)
-  // 3. Project memory + style guide (project-specific rules — override skills)
-  // 4. Agent's own notes (my accumulated knowledge on this project)
-  // 5. Phase summaries (what happened before)
+  // 2. Global memory (cross-project user preferences)
+  // 3. Project memory + style guide (project-specific rules)
+  // 4. Agent's own notes
+  // 5. Phase summaries (HARD CONSTRAINTS — locked decisions from prior phases)
   // 6. Skills + framework (craft reference — lowest priority, most generic)
   const systemParts: string[] = [role.systemPrompt];
 
