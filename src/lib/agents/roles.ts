@@ -9,7 +9,8 @@ export type RoleName =
   | "editor"
   | "continuity"
   | "reader"
-  | "worldbuilder";
+  | "worldbuilder"
+  | "chronicler";
 
 export interface Role {
   name: RoleName;

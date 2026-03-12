@@ -38,6 +38,7 @@ const ROLE_META: Record<string, { label: string; category: string; color: string
   editor: { label: "铁面", category: "编辑", color: "text-sky-300/80", icon: "📝" },
   reader: { label: "知音", category: "读者", color: "text-zinc-400", icon: "📖" },
   continuity: { label: "掌故", category: "连续性", color: "text-slate-400", icon: "🔗" },
+  chronicler: { label: "史官", category: "记录", color: "text-amber-200/70", icon: "📜" },
   context: { label: "参考资料", category: "导入", color: "text-amber-300/60", icon: "📄" },
 };
 
@@ -843,6 +844,31 @@ ${writerDisplay}`;
         }
       }
 
+      // --- Chronicler: dramatize the discussion ---
+      // Runs after panel + discussion, reads full history, writes a short narrative
+      const totalAgentMsgs = panel.length + (isDiscussionPhase ? panel.length * 2 : 0); // rough estimate
+      if (totalAgentMsgs >= 3) {
+        const chroniclerPrompt = `请阅读上面这一轮完整的圆桌讨论（从创作者最新的消息开始，到刚才讨论结束），写一篇300-800字的幕后纪实短文。
+
+要求：只挑最关键、最有戏的部分。写法参见你的角色定义。直接输出正文。`;
+        const chronicleText = await streamOneAgent("chronicler", chroniclerPrompt, true);
+        const chronicleDisplay = chronicleText.replace(/\n?\[(PHASE_COMPLETE|APPROVED|PASS)\]\n?/g, "").trim();
+
+        if (chronicleDisplay.length > 50) {
+          setStreamText("");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `agent-${Date.now()}-chronicler`,
+              role: "chronicler",
+              model: activeProvider,
+              content: chronicleDisplay,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+      }
+
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
       if (sawPhaseComplete) setShowPhasePrompt(true);
@@ -1381,6 +1407,34 @@ ${writerDisplay}`;
                                   </summary>
                                   <div className="px-4 py-3 border-t border-border/30 max-h-80 overflow-y-auto">
                                     <div className="whitespace-pre-wrap text-[13px] leading-[1.7] text-foreground/50">
+                                      {m.content}
+                                    </div>
+                                  </div>
+                                </details>
+                              </div>
+                            );
+                          }
+
+                          // Chronicler — literary behind-the-scenes card
+                          if (m.role === "chronicler") {
+                            const preview = m.content.slice(0, 100).replace(/\n/g, " ");
+                            return (
+                              <div key={m.id} className="group/msg">
+                                <details className="glass rounded-xl border border-amber-400/15 overflow-hidden bg-amber-950/5">
+                                  <summary className="px-4 py-2.5 cursor-pointer flex items-center gap-2 text-sm hover:bg-amber-900/10 transition-colors">
+                                    <span>📜</span>
+                                    <span className="text-amber-200/70 font-medium">史官纪实</span>
+                                    <span className="text-muted/30 text-xs truncate flex-1 italic">{preview}…</span>
+                                    <button
+                                      onClick={(e) => { e.preventDefault(); saveClip(m.content, "chronicler"); setClippedId(m.id); setTimeout(() => setClippedId(null), 1500); }}
+                                      className="text-[11px] text-muted/25 hover:text-accent transition-colors"
+                                      title="保存到剪贴板"
+                                    >
+                                      {clippedId === m.id ? "✓" : "📋"}
+                                    </button>
+                                  </summary>
+                                  <div className="px-5 py-4 border-t border-amber-400/10 max-h-[600px] overflow-y-auto">
+                                    <div className="whitespace-pre-wrap text-sm leading-[1.9] text-foreground/75 italic font-serif">
                                       {m.content}
                                     </div>
                                   </div>
