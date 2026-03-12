@@ -112,6 +112,8 @@ export default function ProjectPage() {
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string }[]>([]);
   const [draggingInput, setDraggingInput] = useState(false);
   const revisionResolveRef = useRef<((feedback: string) => void) | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const stoppedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -421,6 +423,9 @@ export default function ProjectPage() {
     setStreamText("");
     setThinkingSeconds(0);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     const thinkingTimer = setInterval(() => {
       setThinkingSeconds((s) => s + 1);
     }, 1000);
@@ -438,6 +443,7 @@ export default function ProjectPage() {
           skipSaveAgent,
           cleanContext,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -450,34 +456,47 @@ export default function ProjectPage() {
       let fullText = "";
 
       if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value);
-          for (const line of chunk.split("\n")) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.error) throw new Error(parsed.error);
-                if (parsed.text) {
-                  fullText += parsed.text;
-                  setStreamText(fullText);
-                }
-              } catch (parseErr) {
-                if (parseErr instanceof Error && parseErr.message && !parseErr.message.includes("JSON")) {
-                  throw parseErr;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                if (data === "[DONE]") continue;
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.error) throw new Error(parsed.error);
+                  if (parsed.text) {
+                    fullText += parsed.text;
+                    setStreamText(fullText);
+                  }
+                } catch (parseErr) {
+                  if (parseErr instanceof Error && parseErr.message && !parseErr.message.includes("JSON")) {
+                    throw parseErr;
+                  }
                 }
               }
             }
           }
+        } catch (readErr) {
+          if (controller.signal.aborted) {
+            reader.cancel().catch(() => {});
+            // Return partial text on abort
+            return fullText;
+          }
+          throw readErr;
         }
       }
 
       return fullText;
+    } catch (err) {
+      if (controller.signal.aborted) return ""; // aborted before any data
+      throw err;
     } finally {
       clearInterval(thinkingTimer);
+      abortRef.current = null;
     }
   }
 
@@ -590,7 +609,8 @@ export default function ProjectPage() {
   async function send(text?: string) {
     const rawMsg = text ?? input.trim();
     const files = attachedFiles;
-    if ((!rawMsg && files.length === 0) || streaming) return;
+    if (!rawMsg && files.length === 0) return;
+    if (streaming && !stoppedRef.current) return; // allow if we just stopped
 
     // Build message with attached file contents
     let msg = rawMsg;
@@ -606,6 +626,7 @@ export default function ProjectPage() {
     setWriterPause(false);
     setWriterFeedback("");
     setStreaming(true);
+    stoppedRef.current = false;
     setError("");
     setSaveStatus("saving");
 
@@ -621,6 +642,9 @@ export default function ProjectPage() {
     if (rawMsg.length > 5) {
       absorbFeedback(rawMsg);
     }
+
+    // Helper: check if user stopped the discussion
+    const wasStopped = () => stoppedRef.current;
 
     // Get the panel of agents for current phase
     const panel = PHASE_PANEL[currentPhase] ?? ["idea"];
@@ -646,18 +670,21 @@ export default function ProjectPage() {
         const approved = fullText.includes("[APPROVED]");
         const displayText = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
 
-        setStreamText("");
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `agent-${Date.now()}-${agentRole}`,
-            role: agentRole,
-            model: activeProvider,
-            content: displayText,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
+        if (displayText.length > 0) {
+          setStreamText("");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `agent-${Date.now()}-${agentRole}`,
+              role: agentRole,
+              model: activeProvider,
+              content: displayText,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
 
+        if (wasStopped()) break;
         if (phaseComplete) sawPhaseComplete = true;
 
         // --- Draft phase: pause after writer output and wait for human decision ---
@@ -797,21 +824,35 @@ ${writerDisplay}`;
       // --- Discussion rounds (non-draft phases only) ---
       // After each agent speaks once, let them discuss/debate for 1-2 rounds
       const isDiscussionPhase = !isDraftLoop && panel.length >= 2 && !sawPhaseComplete;
-      if (isDiscussionPhase) {
+      if (isDiscussionPhase && !wasStopped()) {
         const MAX_DISCUSSION_ROUNDS = 2;
         const activeSpeakers = new Set(panel);
 
         for (let dRound = 1; dRound <= MAX_DISCUSSION_ROUNDS; dRound++) {
-          if (activeSpeakers.size < 2) break; // need at least 2 to discuss
+          if (activeSpeakers.size < 2 || wasStopped()) break;
 
           let anyoneSpoke = false;
 
           for (const agentRole of panel) {
-            if (!activeSpeakers.has(agentRole)) continue;
+            if (!activeSpeakers.has(agentRole) || wasStopped()) continue;
 
             const others = panel.filter((r) => r !== agentRole);
             const prompt = getDiscussionPrompt(agentRole, dRound, others);
             const fullText = await streamOneAgent(agentRole, prompt, true);
+
+            if (wasStopped()) {
+              // Save partial text if any
+              const partial = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED|PASS)\]\n?/g, "").trim();
+              if (partial.length > 0) {
+                setStreamText("");
+                setMessages((prev) => [...prev, {
+                  id: `agent-${Date.now()}-${agentRole}-d${dRound}`,
+                  role: agentRole, model: activeProvider,
+                  content: partial, createdAt: new Date().toISOString(),
+                }]);
+              }
+              break;
+            }
 
             const displayText = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED|PASS)\]\n?/g, "").trim();
             const passed = fullText.includes("[PASS]") || displayText.length < 30;
@@ -838,14 +879,14 @@ ${writerDisplay}`;
             }
           }
 
-          if (!anyoneSpoke) break; // everyone passed, discussion over
+          if (!anyoneSpoke || wasStopped()) break;
         }
       }
 
       // --- Chronicler: dramatize the discussion ---
       // Runs after panel + discussion, reads full history, writes a short narrative
       const totalAgentMsgs = panel.length + (isDiscussionPhase ? panel.length * 2 : 0); // rough estimate
-      if (totalAgentMsgs >= 3) {
+      if (totalAgentMsgs >= 3 && !wasStopped()) {
         const chroniclerPrompt = `请阅读上面这一轮完整的圆桌讨论（从创作者最新的消息开始，到刚才讨论结束），写一篇300-800字的幕后纪实短文。
 
 要求：只挑最关键、最有戏的部分。写法参见你的角色定义。直接输出正文。`;
@@ -1115,10 +1156,24 @@ ${docText}
     }
   }
 
+  function stopDiscussion() {
+    stoppedRef.current = true;
+    abortRef.current?.abort();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      send();
+      if (streaming && input.trim()) {
+        stopDiscussion();
+        const userText = input.trim();
+        setInput("");
+        setTimeout(() => send(userText), 100);
+      } else if (streaming) {
+        stopDiscussion();
+      } else {
+        send();
+      }
     }
   }
 
@@ -1858,22 +1913,41 @@ ${docText}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder={attachedFiles.length > 0 ? "说说这些材料，或直接发送..." : "说点什么..."}
-                      disabled={streaming}
+                      placeholder={streaming ? "输入后按发送可打断讨论并加入意见..." : (attachedFiles.length > 0 ? "说说这些材料，或直接发送..." : "说点什么...")}
                       rows={1}
-                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] disabled:opacity-40 resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
+                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
                     />
-                    <button
-                      onClick={() => send()}
-                      disabled={streaming || (!input.trim() && attachedFiles.length === 0)}
-                      className="px-6 py-3 bg-accent/80 hover:bg-accent disabled:bg-surface/40 disabled:text-muted/30 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(94,138,133,0.25)] shrink-0"
-                    >
-                      发送
-                    </button>
+                    {streaming ? (
+                      <button
+                        onClick={() => {
+                          if (input.trim()) {
+                            // Stop and immediately send user's input
+                            stopDiscussion();
+                            const userText = input.trim();
+                            setInput("");
+                            // Wait a tick for streaming to stop, then send
+                            setTimeout(() => send(userText), 100);
+                          } else {
+                            stopDiscussion();
+                          }
+                        }}
+                        className="px-6 py-3 bg-rose-600/80 hover:bg-rose-600 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(225,29,72,0.25)] shrink-0"
+                      >
+                        {input.trim() ? "打断发言" : "停止"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => send()}
+                        disabled={!input.trim() && attachedFiles.length === 0}
+                        className="px-6 py-3 bg-accent/80 hover:bg-accent disabled:bg-surface/40 disabled:text-muted/30 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(94,138,133,0.25)] shrink-0"
+                      >
+                        发送
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-[11px] text-muted/20">
-                      ⌘+Enter 发送 · 可拖拽文件到输入框
+                      {streaming ? "输入意见后点击「打断发言」" : "⌘+Enter 发送 · 可拖拽文件到输入框"}
                     </span>
                     <span className="text-[11px] text-muted/25">
                       {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((r) => ROLE_META[r]?.icon).join(" ")} · {PROVIDER_LABELS[activeProvider]}
