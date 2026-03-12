@@ -39,6 +39,7 @@ const ROLE_META: Record<string, { label: string; category: string; color: string
   reader: { label: "知音", category: "读者", color: "text-zinc-400", icon: "📖" },
   continuity: { label: "掌故", category: "连续性", color: "text-slate-400", icon: "🔗" },
   chronicler: { label: "史官", category: "记录", color: "text-amber-200/70", icon: "📜" },
+  reviewer: { label: "评审", category: "评审", color: "text-rose-300/80", icon: "🔍" },
   context: { label: "参考资料", category: "导入", color: "text-amber-300/60", icon: "📄" },
 };
 
@@ -1055,6 +1056,65 @@ ${writerDisplay}`;
     }
   }
 
+  // Independent review — collect recent agent outputs and ask reviewer to critique
+  async function requestReview() {
+    if (streaming) return;
+    // Gather the most recent substantive agent messages (skip human, context, chronicler, reviewer)
+    const skipRoles = new Set(["human", "context", "chronicler", "reviewer"]);
+    const agentOutputs = messages
+      .filter((m) => !skipRoles.has(m.role) && !m.intermediate && m.content.length > 50)
+      .slice(-10); // last 10 substantive messages
+
+    if (agentOutputs.length === 0) {
+      setError("没有可供评审的内容");
+      return;
+    }
+
+    const docText = agentOutputs
+      .map((m) => {
+        const meta = ROLE_META[m.role];
+        return `[${meta?.label ?? m.role}]:\n${m.content}`;
+      })
+      .join("\n\n---\n\n");
+
+    const reviewPrompt = `请以独立评审的身份，审阅以下圆桌讨论产出的文档内容。你与创作团队无关，不了解讨论过程，只看产出质量。
+
+---
+
+${docText}
+
+---
+
+请按照你的评审规则，给出独立评审意见。注意：只评价内容本身的质量，不要评价讨论过程。`;
+
+    setStreaming(true);
+    setStreamingRole("reviewer");
+    try {
+      const fullText = await streamOneAgent("reviewer", reviewPrompt, true);
+      // Save reviewer message
+      const reviewMsg: Message = {
+        id: `review-${Date.now()}`,
+        role: "reviewer",
+        content: fullText,
+        model: activeProvider,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, reviewMsg]);
+      // Persist
+      await fetch(`/api/chat?projectSlug=${slug}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reviewMsg),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "评审失败");
+    } finally {
+      setStreaming(false);
+      setStreamingRole("");
+      setStreamText("");
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -1162,6 +1222,13 @@ ${writerDisplay}`;
               {summaryLoading ? "总结中..." : "下一阶段 →"}
             </button>
           )}
+          <button
+            onClick={requestReview}
+            disabled={streaming || messages.length === 0}
+            className="mt-2 w-full px-3 py-2 text-[12px] text-rose-300/70 hover:text-rose-300 bg-rose-500/5 hover:bg-rose-500/10 border border-rose-400/15 rounded-lg transition-all disabled:opacity-30 disabled:cursor-default"
+          >
+            🔍 独立评审
+          </button>
         </div>
       </aside>
 
@@ -1436,6 +1503,34 @@ ${writerDisplay}`;
                                     </div>
                                   </div>
                                 </details>
+                              </div>
+                            );
+                          }
+
+                          // Reviewer — independent review card
+                          if (m.role === "reviewer") {
+                            return (
+                              <div key={m.id} className="group/msg">
+                                <div className="glass rounded-xl border border-rose-400/15 overflow-hidden bg-rose-950/5">
+                                  <div className="px-4 py-2.5 flex items-center gap-2 text-sm border-b border-rose-400/10">
+                                    <span>🔍</span>
+                                    <span className="text-rose-300/80 font-medium">独立评审</span>
+                                    <div className="ml-auto flex gap-2">
+                                      <button
+                                        onClick={() => { saveClip(m.content, "reviewer"); setClippedId(m.id); setTimeout(() => setClippedId(null), 1500); }}
+                                        className="text-[11px] text-muted/25 hover:text-accent transition-colors"
+                                        title="保存到剪贴板"
+                                      >
+                                        {clippedId === m.id ? "✓" : "📋"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="px-5 py-4 max-h-[600px] overflow-y-auto">
+                                    <div className="whitespace-pre-wrap text-[14px] leading-[1.8] text-foreground/70">
+                                      {m.content}
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             );
                           }
