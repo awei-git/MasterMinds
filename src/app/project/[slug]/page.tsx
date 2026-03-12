@@ -98,8 +98,6 @@ export default function ProjectPage() {
   const [showPhasePrompt, setShowPhasePrompt] = useState(false);
   const [phaseSummaries, setPhaseSummaries] = useState<Record<string, string>>({});
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [editingSummary, setEditingSummary] = useState<string | null>(null);
-  const [editSummaryText, setEditSummaryText] = useState("");
   const [summaryModal, setSummaryModal] = useState<{ phase: string; text: string; editing: boolean } | null>(null);
   const [collapsedRounds, setCollapsedRounds] = useState<Set<string>>(new Set());
   const [roundSummaries, setRoundSummaries] = useState<Record<string, string>>({});
@@ -282,7 +280,6 @@ export default function ProjectPage() {
       body: JSON.stringify({ projectSlug: slug, phase, content }),
     });
     setPhaseSummaries((prev) => ({ ...prev, [phase]: content }));
-    setEditingSummary(null);
   }
 
   // Open summary modal: generate summary for current phase, then show for review
@@ -1844,7 +1841,6 @@ ${writerDisplay}`;
               <div className="space-y-2">
                 {FLOW_STEPS.map((step) => {
                   const hasSummary = !!phaseSummaries[step.key];
-                  const isEditing = editingSummary === step.key;
                   const isActive = step.key === currentPhase;
                   const isPast = FLOW_STEPS.findIndex((s) => s.key === currentPhase) >
                     FLOW_STEPS.findIndex((s) => s.key === step.key);
@@ -1853,85 +1849,34 @@ ${writerDisplay}`;
 
                   return (
                     <div key={step.key}>
-                      <details className="group">
-                        <summary className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl cursor-pointer text-sm transition-colors ${
+                      <button
+                        onClick={() => {
+                          if (hasSummary) {
+                            setSummaryModal({ phase: step.key, text: phaseSummaries[step.key], editing: false });
+                          }
+                        }}
+                        disabled={!hasSummary}
+                        className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm text-left transition-colors ${
                           hasSummary
-                            ? "glass hover:bg-surface-hover/50"
-                            : "hover:bg-surface-hover/30"
-                        }`}>
-                          <span className={hasSummary ? "text-green-400/80" : summaryLoading ? "text-amber-400/60 animate-pulse" : "text-foreground/15"}>
-                            {hasSummary ? "✓" : summaryLoading ? "●" : "○"}
+                            ? "glass hover:bg-surface-hover/50 cursor-pointer"
+                            : "cursor-default"
+                        }`}
+                      >
+                        <span className={hasSummary ? "text-green-400/80" : summaryLoading ? "text-amber-400/60 animate-pulse" : "text-foreground/15"}>
+                          {hasSummary ? "✓" : summaryLoading ? "●" : "○"}
+                        </span>
+                        <span className={hasSummary ? "text-foreground/70 font-medium" : "text-foreground/30"}>
+                          {step.label}
+                        </span>
+                        {hasSummary && (
+                          <span className="text-[11px] text-foreground/25 ml-auto">
+                            {(phaseSummaries[step.key].length / 1000).toFixed(1)}k字
                           </span>
-                          <span className={hasSummary ? "text-foreground/70 font-medium" : "text-foreground/30"}>
-                            {step.label}
-                          </span>
-                          {hasSummary && (
-                            <span className="text-[11px] text-foreground/25 ml-auto">
-                              {(phaseSummaries[step.key].length / 1000).toFixed(1)}k字
-                            </span>
-                          )}
-                        </summary>
-                        <div className="mt-2 rounded-xl overflow-hidden">
-                          {hasSummary ? (
-                            isEditing ? (
-                              <div className="space-y-2">
-                                <textarea
-                                  value={editSummaryText}
-                                  onChange={(e) => setEditSummaryText(e.target.value)}
-                                  className="w-full bg-surface/60 border border-border/50 rounded-xl px-4 py-3 text-xs text-foreground/60 leading-relaxed outline-none focus:border-accent/30 resize-none"
-                                  rows={14}
-                                />
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => savePhaseSummary(step.key, editSummaryText)}
-                                    className="px-3 py-1.5 text-xs bg-accent/20 text-accent rounded-lg hover:bg-accent/30 transition-colors"
-                                  >
-                                    保存
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingSummary(null)}
-                                    className="px-3 py-1.5 text-xs text-foreground/35 bg-surface-hover/50 rounded-lg hover:text-foreground/50 transition-colors"
-                                  >
-                                    取消
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="relative">
-                                <div className="glass rounded-xl px-4 py-3 max-h-60 overflow-y-auto text-[12px] text-foreground/45 leading-relaxed whitespace-pre-wrap">
-                                  {phaseSummaries[step.key]}
-                                </div>
-                                <div className="flex gap-2 mt-2">
-                                  <button
-                                    onClick={() => {
-                                      setEditingSummary(step.key);
-                                      setEditSummaryText(phaseSummaries[step.key]);
-                                    }}
-                                    className="text-[11px] text-foreground/25 hover:text-accent transition-colors"
-                                  >
-                                    编辑
-                                  </button>
-                                  <button
-                                    onClick={() => generatePhaseSummary(step.key)}
-                                    disabled={summaryLoading}
-                                    className="text-[11px] text-foreground/25 hover:text-accent disabled:text-foreground/10 transition-colors"
-                                  >
-                                    {summaryLoading ? "生成中..." : "重新生成"}
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          ) : (
-                            <div className="px-3.5 py-2">
-                              {summaryLoading ? (
-                                <span className="text-xs text-foreground/30 animate-pulse">正在生成总结…</span>
-                              ) : (
-                                <span className="text-xs text-foreground/20">对话后自动生成</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </details>
+                        )}
+                        {!hasSummary && summaryLoading && (
+                          <span className="text-xs text-foreground/30 ml-auto animate-pulse">生成中…</span>
+                        )}
+                      </button>
                     </div>
                   );
                 })}
@@ -2088,7 +2033,7 @@ ${writerDisplay}`;
       {/* Phase summary modal */}
       {summaryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#141e1b] border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
+          <div className="bg-[#141e1b] border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <h2 className="text-lg font-medium text-foreground/80">
@@ -2110,14 +2055,14 @@ ${writerDisplay}`;
                 </div>
               ) : summaryModal.editing ? (
                 <textarea
-                  className="w-full h-full min-h-[300px] bg-black/20 border border-white/10 rounded-lg p-4 text-sm text-foreground/70 resize-none focus:outline-none focus:border-white/20"
+                  className="w-full h-full min-h-[400px] bg-black/20 border border-white/10 rounded-lg p-4 text-[15px] text-foreground/70 leading-[1.8] resize-none focus:outline-none focus:border-white/20"
                   value={summaryModal.text}
                   onChange={(e) =>
                     setSummaryModal((prev) => prev ? { ...prev, text: e.target.value } : null)
                   }
                 />
               ) : (
-                <div className="text-sm text-foreground/60 whitespace-pre-wrap leading-relaxed">
+                <div className="text-[15px] text-foreground/70 whitespace-pre-wrap leading-[1.8]">
                   {summaryModal.text || "（无内容）"}
                 </div>
               )}
