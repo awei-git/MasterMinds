@@ -132,8 +132,16 @@ function loadPhaseSummaries(slug: string, currentPhase?: string): string {
 }
 
 function loadAgentNotes(slug: string, role: RoleName): string {
-  const path = join(projectDir(slug), "memory", "agent-notes", `${role}.md`);
-  return readIfExists(path) ?? "";
+  const parts: string[] = [];
+  // Global notes (cross-project learned behaviors)
+  const globalPath = join(DATA_DIR, "global-agent-notes", `${role}.md`);
+  const globalNotes = readIfExists(globalPath);
+  if (globalNotes) parts.push("## 全局经验（适用于所有项目）\n" + globalNotes);
+  // Project-specific notes
+  const projectPath = join(projectDir(slug), "memory", "agent-notes", `${role}.md`);
+  const projectNotes = readIfExists(projectPath);
+  if (projectNotes) parts.push("## 本项目经验\n" + projectNotes);
+  return parts.join("\n\n");
 }
 
 function loadBibleSummary(slug: string, characters?: string[]): string {

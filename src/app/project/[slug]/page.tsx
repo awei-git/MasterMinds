@@ -109,10 +109,13 @@ export default function ProjectPage() {
   const [revisionPaused, setRevisionPaused] = useState(false);
   const [revisionFeedbackInput, setRevisionFeedbackInput] = useState("");
   const [allProjects, setAllProjects] = useState<{ slug: string; title: string; phase?: string }[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string }[]>([]);
+  const [draggingInput, setDraggingInput] = useState(false);
   const revisionResolveRef = useRef<((feedback: string) => void) | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`/api/projects`)
@@ -527,12 +530,81 @@ export default function ProjectPage() {
     return `（以上是创作者的消息和其他agent的讨论。请以${category}的专业视角，补充你的意见、提出不同角度、或回应之前agent的观点。简洁有力，不要重复别人说过的。）`;
   }
 
+  // Build a discussion-round prompt for an agent, referencing what others said
+  function getDiscussionPrompt(role: string, roundNum: number, otherSpeakers: string[]): string {
+    const myName = ROLE_META[role]?.label ?? role;
+    const othersStr = otherSpeakers.map((r) => ROLE_META[r]?.label ?? r).join("、");
+    const category = ROLE_META[role]?.category ?? role;
+
+    if (roundNum === 1) {
+      return `（讨论继续。${othersStr}刚才都发表了意见。作为${myName}（${category}），请回应：
+
+1. 你同意谁的哪个观点？为什么？
+2. 你不同意谁的哪个观点？你的理由？
+3. 有没有大家都漏掉的重要问题？
+
+要求：直接点名回应，不要泛泛而谈。如果你完全同意所有人说的、没有补充，只输出 [PASS]。）`;
+    }
+
+    return `（第${roundNum}轮讨论。请针对刚才的争议点或新想法做最后回应。
+
+要求：只说新的、有价值的内容。重复的不要说。如果没有新观点，只输出 [PASS]。简洁。）`;
+  }
+
+  // Fire-and-forget: detect user feedback and absorb into agent notes
+  function absorbFeedback(userMessage: string) {
+    const recentMsgs = messages.slice(-8).map((m) => ({
+      role: m.role,
+      content: m.content.slice(0, 600),
+    }));
+    fetch("/api/agent-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectSlug: slug,
+        userMessage,
+        recentMessages: recentMsgs,
+        provider: activeProvider,
+      }),
+    }).then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        if (data.absorbed && data.items?.length) {
+          console.log("[feedback absorbed]", data.items);
+        }
+      }
+    }).catch(() => { /* silent */ });
+  }
+
   // Roundtable: send to all agents at the table
+  async function addAttachments(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    const loaded = await Promise.all(
+      files.map(async (f) => ({ name: f.name, content: await f.text() }))
+    );
+    setAttachedFiles((prev) => {
+      const names = new Set(prev.map((f) => f.name));
+      return [...prev, ...loaded.filter((f) => !names.has(f.name))];
+    });
+  }
+
   async function send(text?: string) {
-    const msg = text ?? input.trim();
-    if (!msg || streaming) return;
+    const rawMsg = text ?? input.trim();
+    const files = attachedFiles;
+    if ((!rawMsg && files.length === 0) || streaming) return;
+
+    // Build message with attached file contents
+    let msg = rawMsg;
+    if (files.length > 0) {
+      const fileParts = files.map((f) => `=== ${f.name} ===\n${f.content}`).join("\n\n");
+      msg = msg
+        ? `${msg}\n\n---\n\n附件材料：\n\n${fileParts}`
+        : `请阅读以下材料：\n\n${fileParts}`;
+    }
+
     setInput("");
-    setWriterPause(false); // always clear pause when user sends a new message
+    setAttachedFiles([]);
+    setWriterPause(false);
     setWriterFeedback("");
     setStreaming(true);
     setError("");
@@ -545,6 +617,11 @@ export default function ProjectPage() {
       createdAt: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, humanMsg]);
+
+    // Fire-and-forget: absorb user feedback into agent notes
+    if (rawMsg.length > 5) {
+      absorbFeedback(rawMsg);
+    }
 
     // Get the panel of agents for current phase
     const panel = PHASE_PANEL[currentPhase] ?? ["idea"];
@@ -715,6 +792,54 @@ ${writerDisplay}`;
             content: `📋 **修稿反思**\n\n${reflectDisplay}`,
             createdAt: new Date().toISOString(),
           }]);
+        }
+      }
+
+      // --- Discussion rounds (non-draft phases only) ---
+      // After each agent speaks once, let them discuss/debate for 1-2 rounds
+      const isDiscussionPhase = !isDraftLoop && panel.length >= 2 && !sawPhaseComplete;
+      if (isDiscussionPhase) {
+        const MAX_DISCUSSION_ROUNDS = 2;
+        const activeSpeakers = new Set(panel);
+
+        for (let dRound = 1; dRound <= MAX_DISCUSSION_ROUNDS; dRound++) {
+          if (activeSpeakers.size < 2) break; // need at least 2 to discuss
+
+          let anyoneSpoke = false;
+
+          for (const agentRole of panel) {
+            if (!activeSpeakers.has(agentRole)) continue;
+
+            const others = panel.filter((r) => r !== agentRole);
+            const prompt = getDiscussionPrompt(agentRole, dRound, others);
+            const fullText = await streamOneAgent(agentRole, prompt, true);
+
+            const displayText = fullText.replace(/\n?\[(PHASE_COMPLETE|APPROVED|PASS)\]\n?/g, "").trim();
+            const passed = fullText.includes("[PASS]") || displayText.length < 30;
+
+            if (passed) {
+              activeSpeakers.delete(agentRole);
+            } else {
+              anyoneSpoke = true;
+              setStreamText("");
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `agent-${Date.now()}-${agentRole}-d${dRound}`,
+                  role: agentRole,
+                  model: activeProvider,
+                  content: displayText,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
+
+              if (fullText.includes("[PHASE_COMPLETE]")) {
+                sawPhaseComplete = true;
+              }
+            }
+          }
+
+          if (!anyoneSpoke) break; // everyone passed, discussion over
         }
       }
 
@@ -1539,20 +1664,62 @@ ${writerDisplay}`;
                 </div>
               ) : (
                 <>
-                  <div className="flex gap-3 items-end">
+                  {/* Attached files chips */}
+                  {attachedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {attachedFiles.map((f) => (
+                        <span
+                          key={f.name}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface/60 border border-border/40 text-xs text-muted/60 group"
+                        >
+                          <span className="text-muted/40">📄</span>
+                          <span className="max-w-[140px] truncate">{f.name}</span>
+                          <span className="text-muted/25">
+                            {f.content.length > 1000
+                              ? `${(f.content.length / 1000).toFixed(1)}k`
+                              : `${f.content.length}字`}
+                          </span>
+                          <button
+                            onClick={() => setAttachedFiles((prev) => prev.filter((x) => x.name !== f.name))}
+                            className="text-muted/25 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 ml-0.5"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    className={`flex gap-3 items-end rounded-xl transition-colors ${draggingInput ? "ring-2 ring-accent/40 bg-accent/5" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); setDraggingInput(true); }}
+                    onDragLeave={() => setDraggingInput(false)}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      setDraggingInput(false);
+                      if (e.dataTransfer.files.length > 0) await addAttachments(e.dataTransfer.files);
+                    }}
+                  >
+                    <button
+                      onClick={() => attachInputRef.current?.click()}
+                      disabled={streaming}
+                      className="px-2 py-3 text-muted/30 hover:text-muted/60 disabled:opacity-30 transition-colors shrink-0"
+                      title="附加文件"
+                    >
+                      📎
+                    </button>
                     <textarea
                       ref={inputRef}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="说点什么..."
+                      placeholder={attachedFiles.length > 0 ? "说说这些材料，或直接发送..." : "说点什么..."}
                       disabled={streaming}
                       rows={1}
                       className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] disabled:opacity-40 resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
                     />
                     <button
                       onClick={() => send()}
-                      disabled={streaming || !input.trim()}
+                      disabled={streaming || (!input.trim() && attachedFiles.length === 0)}
                       className="px-6 py-3 bg-accent/80 hover:bg-accent disabled:bg-surface/40 disabled:text-muted/30 rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_16px_rgba(94,138,133,0.25)] shrink-0"
                     >
                       发送
@@ -1560,7 +1727,7 @@ ${writerDisplay}`;
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-[11px] text-muted/20">
-                      ⌘+Enter 发送
+                      ⌘+Enter 发送 · 可拖拽文件到输入框
                     </span>
                     <span className="text-[11px] text-muted/25">
                       {(PHASE_PANEL[currentPhase] ?? ["idea"]).map((r) => ROLE_META[r]?.icon).join(" ")} · {PROVIDER_LABELS[activeProvider]}
@@ -1574,7 +1741,7 @@ ${writerDisplay}`;
         </div>
 
         {/* Right: Sidebar — tools */}
-        <aside className="w-[320px] shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto hidden lg:block">
+        <aside className="w-[640px] shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto hidden lg:block">
           <div className="p-5 space-y-6">
             {/* Roundtable members */}
             <div>
@@ -1611,7 +1778,7 @@ ${writerDisplay}`;
                 })}
               </div>
               <p className="text-[11px] text-foreground/25 mt-2.5">
-                你说一句话，所有成员自动轮流发言
+                你说话后，成员轮流发言并互相讨论。你的纠正会被记住。
               </p>
             </div>
 
@@ -1848,6 +2015,18 @@ ${writerDisplay}`;
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) importMarkdown(file);
+          e.target.value = "";
+        }}
+      />
+      {/* Hidden file input for attachments */}
+      <input
+        ref={attachInputRef}
+        type="file"
+        multiple
+        accept=".txt,.md,.markdown,.csv,.json,.xml,.html,.js,.ts,.py,.rst,.tex"
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addAttachments(e.target.files);
           e.target.value = "";
         }}
       />
