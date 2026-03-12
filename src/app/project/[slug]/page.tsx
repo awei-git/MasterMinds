@@ -555,18 +555,10 @@ export default function ProjectPage() {
     const category = ROLE_META[role]?.category ?? role;
 
     if (roundNum === 1) {
-      return `（讨论继续。${othersStr}刚才都发表了意见。作为${myName}（${category}），请回应：
-
-1. 你同意谁的哪个观点？为什么？
-2. 你不同意谁的哪个观点？你的理由？
-3. 你自己的专业角度有什么补充？
-
-要求：直接点名回应，不要泛泛而谈。如果你完全同意所有人说的、没有补充，只输出 [PASS]。）`;
+      return `（讨论继续。${othersStr}刚才都发表了意见。作为${myName}（${category}），自然地回应——赞同、反驳、补充、追问都行，随你。点名说，别泛泛而谈。没什么要说的就输出 [PASS]。）`;
     }
 
-    return `（第${roundNum}轮讨论。请针对刚才的争议点或新想法做最后回应。
-
-要求：只说新的、有价值的内容。重复的不要说。如果没有新观点，只输出 [PASS]。简洁。）`;
+    return `（第${roundNum}轮讨论。接着聊，有新想法就说，没有就输出 [PASS]。）`;
   }
 
   // Fire-and-forget: detect user feedback and absorb into agent notes
