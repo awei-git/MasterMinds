@@ -6,62 +6,34 @@ import type { LLMMessage } from "../llm";
 const DATA_DIR = join(process.cwd(), "data");
 const AGENTS_DIR = join(process.cwd(), "agents");
 
-// Which skills are relevant to each role
-const ROLE_SKILLS: Record<string, string[]> = {
-  writer: [
-    "scene-level-tension",
-    "dialogue-subtext",
-    "pov-camera-discipline",
-    "psychic-distance",
-    "free-indirect-discourse",
-    "sentence-rhythm",
-    "telling-detail",
-    "iceberg-principle",
-    "strategic-withholding",
-    "objective-correlative",
-    "image-systems",
-    "voice-consistency",
-    "compression",
-    "surgical-revision",
-  ],
-  editor: [
-    "scene-level-tension",
-    "dialogue-subtext",
-    "pov-camera-discipline",
-    "sentence-rhythm",
-    "telling-detail",
-    "iceberg-principle",
-    "voice-consistency",
-    "compression",
-  ],
-  idea: [
-    "novum-extrapolation-chain",
-    "conceptual-metaphor-as-structure",
-    "defamiliarization",
-    "character-desire-contradiction",
-  ],
-  architect: [
-    "strategic-withholding",
-    "earned-ending",
-    "image-systems",
-    "scene-level-tension",
-  ],
-  character: [
-    "character-desire-contradiction",
-    "dialogue-subtext",
-    "free-indirect-discourse",
-    "psychic-distance",
-  ],
-  reader: [
-    "scene-level-tension",
-  ],
-  continuity: [],
-  worldbuilder: [
-    "novum-extrapolation-chain",
-    "incluing",
-    "defamiliarization",
-    "conceptual-metaphor-as-structure",
-  ],
+// Skills organized by task type — loaded on-demand, not all at once
+const SKILL_GROUPS: Record<string, string[]> = {
+  // For writing new prose
+  drafting: ["scene-level-tension", "dialogue-subtext", "telling-detail", "psychic-distance", "sentence-rhythm"],
+  // For revision/rewrite
+  revision: ["surgical-revision", "compression", "voice-consistency"],
+  // For dialogue-heavy scenes
+  dialogue: ["dialogue-subtext", "free-indirect-discourse", "psychic-distance"],
+  // For structural/architectural work
+  structure: ["strategic-withholding", "scene-level-tension", "image-systems", "earned-ending"],
+  // For idea/concept work
+  concept: ["novum-extrapolation-chain", "conceptual-metaphor-as-structure", "defamiliarization", "character-desire-contradiction"],
+  // For worldbuilding
+  world: ["novum-extrapolation-chain", "incluing", "defamiliarization"],
+  // For editing/review (editor doesn't need craft skills — it evaluates, not writes)
+  editing: ["scene-level-tension", "compression"],
+};
+
+// Default skill group per role (can be overridden by task hints)
+const ROLE_DEFAULT_SKILLS: Record<string, string> = {
+  writer: "drafting",
+  editor: "editing",
+  idea: "concept",
+  architect: "structure",
+  character: "dialogue",
+  reader: "",      // reader evaluates, doesn't need craft skills
+  continuity: "",  // checks facts, not craft
+  worldbuilder: "world",
 };
 
 function projectDir(slug: string): string {
@@ -101,7 +73,51 @@ export function hasPhaseSummaries(slug: string, currentPhase?: string): boolean 
   return false;
 }
 
-function loadPhaseSummaries(slug: string, currentPhase?: string): string {
+/**
+ * Extract only the "✓ 已确定" lines from a phase summary.
+ * This compresses a 20KB summary down to ~2-3KB of hard constraints.
+ */
+function extractConstraints(content: string): string {
+  const lines = content.split("\n");
+  const result: string[] = [];
+  let inConfirmedSection = false;
+  let currentHeading = "";
+
+  for (const line of lines) {
+    // Track section headings
+    if (line.startsWith("## ") || line.startsWith("### ")) {
+      const heading = line.trim();
+      // "已确定" or "已确定的内容" sections
+      if (heading.includes("已确定")) {
+        inConfirmedSection = true;
+        currentHeading = heading;
+        result.push(heading);
+        continue;
+      }
+      // Sub-headings within confirmed section
+      if (inConfirmedSection && line.startsWith("### ")) {
+        result.push(heading);
+        continue;
+      }
+      // New top-level section ends confirmed block
+      if (line.startsWith("## ") && !heading.includes("已确定")) {
+        inConfirmedSection = false;
+        continue;
+      }
+    }
+
+    // Include ✓ lines and table rows (character tables, structure tables)
+    if (inConfirmedSection) {
+      if (line.startsWith("- ✓") || line.startsWith("| ") || line.startsWith("---")) {
+        result.push(line);
+      }
+    }
+  }
+
+  return result.join("\n");
+}
+
+function loadPhaseSummaries(slug: string, currentPhase?: string, compact?: boolean): string {
   const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
   const PHASE_LABELS: Record<string, string> = {
     conception: "构思", bible: "世界与角色", structure: "结构",
@@ -115,7 +131,13 @@ function loadPhaseSummaries(slug: string, currentPhase?: string): string {
   for (let i = 0; i < currentIdx; i++) {
     const phase = PHASE_ORDER[i];
     const content = readIfExists(join(dir, `${phase}.md`));
-    if (content) parts.push(`## ${PHASE_LABELS[phase] ?? phase}阶段\n\n${content}`);
+    if (!content) continue;
+
+    // In compact mode: only extract ✓ confirmed items (for draft/review/final phases)
+    const text = compact ? extractConstraints(content) : content;
+    if (text.trim()) {
+      parts.push(`## ${PHASE_LABELS[phase] ?? phase}阶段\n\n${text}`);
+    }
   }
 
   if (parts.length === 0) return "";
@@ -226,8 +248,12 @@ function loadChapterSummaries(
   return parts.join("\n\n");
 }
 
-export function loadSkills(role: RoleName): string {
-  const skillNames = ROLE_SKILLS[role] ?? [];
+export function loadSkills(role: RoleName, skillGroup?: string): string {
+  // Determine which skill group to load
+  const group = skillGroup || ROLE_DEFAULT_SKILLS[role] || "";
+  if (!group) return "";
+
+  const skillNames = SKILL_GROUPS[group] ?? [];
   if (skillNames.length === 0) return "";
 
   const skillsDir = join(AGENTS_DIR, "skills");
@@ -240,7 +266,80 @@ export function loadSkills(role: RoleName): string {
   }
 
   if (parts.length === 0) return "";
-  return "# Writing Skills Reference\n\n" + parts.join("\n\n---\n\n");
+  return `# Writing Skills Reference (${group})\n\n` + parts.join("\n\n---\n\n");
+}
+
+// --- Draft progress tracking ---
+
+/**
+ * Scan draft/ directory to build a progress report for the agent.
+ * Tells the agent which chapters/beats are done and how many chars each.
+ */
+function loadDraftProgress(slug: string): string {
+  const dir = join(projectDir(slug), "draft");
+  if (!existsSync(dir)) return "";
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  if (files.length === 0) return "";
+
+  const sections = files.map((f) => {
+    const content = readFileSync(join(dir, f), "utf-8");
+    const id = f.replace(".md", "");
+    return { id, charCount: content.length };
+  });
+
+  // Group by chapter (阳一, 阳二, 阴一, etc.)
+  const chapters = new Map<string, { id: string; charCount: number }[]>();
+  for (const s of sections) {
+    const chapterName = s.id.includes(".") ? s.id.split(".")[0] : s.id;
+    if (!chapters.has(chapterName)) chapters.set(chapterName, []);
+    chapters.get(chapterName)!.push(s);
+  }
+
+  let progress = "# 写作进度\n\n";
+  let totalChars = 0;
+  for (const [chapter, beats] of chapters) {
+    const beatStr = beats.map((b) => `✓ ${b.id} (${b.charCount}字)`).join("  ");
+    const chapterTotal = beats.reduce((sum, b) => sum + b.charCount, 0);
+    totalChars += chapterTotal;
+    progress += `${beatStr}  — ${chapter} 共${chapterTotal}字\n`;
+  }
+  progress += `\n共 ${sections.length} 节，${totalChars} 字已完成。\n`;
+  progress += `\n**重要：不要重写已完成的章节。根据用户指令继续写下一个章节/beat。**\n`;
+
+  return progress;
+}
+
+/**
+ * Load the most recent completed draft content
+ * so the writer can maintain continuity with what came before.
+ */
+function loadRecentDraft(slug: string, maxChars = 3000): string {
+  const dir = join(projectDir(slug), "draft");
+  if (!existsSync(dir)) return "";
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .sort()
+    .reverse(); // most recent first
+
+  if (files.length === 0) return "";
+
+  const parts: string[] = [];
+  let totalChars = 0;
+  for (const f of files) {
+    if (totalChars >= maxChars) break;
+    const content = readFileSync(join(dir, f), "utf-8");
+    const id = f.replace(".md", "");
+    parts.unshift(`### ${id}\n\n${content}`);
+    totalChars += content.length;
+  }
+
+  if (parts.length === 0) return "";
+  return "# 最近写完的内容（供衔接参考）\n\n" + parts.join("\n\n---\n\n");
 }
 
 function loadFramework(slug: string): string {
@@ -283,6 +382,8 @@ export interface ContextRequest {
   chapter?: number; // if writing/reviewing a specific chapter
   phase?: string; // current creative phase
   extraContext?: string; // anything else to inject
+  skillGroup?: string; // override default skill group (e.g. "revision", "dialogue")
+  compact?: boolean; // use compressed phase summaries (for draft/review/final)
 }
 
 export function buildContext(req: ContextRequest): {
@@ -311,11 +412,19 @@ export function buildContext(req: ContextRequest): {
   if (agentNotes) systemParts.push("# My Notes\n" + agentNotes);
 
   // Load summaries from completed phases
-  const phaseSummaries = loadPhaseSummaries(req.projectSlug, req.phase);
+  // In draft/review/final phases, use compact mode by default (only ✓ items)
+  const useCompact = req.compact ?? ["draft", "review", "final"].includes(req.phase ?? "");
+  const phaseSummaries = loadPhaseSummaries(req.projectSlug, req.phase, useCompact);
   if (phaseSummaries) systemParts.push(phaseSummaries);
 
-  // Skills and framework last — generic craft reference, overridden by project-specific above
-  const skills = loadSkills(req.role);
+  // Draft progress: tell the agent what's already been written
+  if (req.phase === "draft" || req.phase === "review") {
+    const draftProgress = loadDraftProgress(req.projectSlug);
+    if (draftProgress) systemParts.push(draftProgress);
+  }
+
+  // Skills: load only the relevant group, not all skills for the role
+  const skills = loadSkills(req.role, req.skillGroup);
   if (skills) systemParts.push(skills);
 
   const framework = loadFramework(req.projectSlug);
@@ -387,6 +496,13 @@ export function buildContext(req: ContextRequest): {
   if (req.role === "continuity" || req.role === "writer" || req.role === "character") {
     const continuity = loadContinuityData(req.projectSlug);
     if (continuity) contextParts.push(continuity);
+  }
+
+  // In draft phase, inject recent draft content for continuity
+  if ((req.phase === "draft" || req.phase === "review") &&
+      (req.role === "writer" || req.role === "editor" || req.role === "continuity")) {
+    const recentDraft = loadRecentDraft(req.projectSlug);
+    if (recentDraft) contextParts.push(recentDraft);
   }
 
   if (req.extraContext) contextParts.push(req.extraContext);

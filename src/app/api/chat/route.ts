@@ -4,6 +4,31 @@ import { stream, type ModelProvider } from "@/lib/llm";
 import { buildContext, hasPhaseSummaries } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
 
+/**
+ * Multi-model routing: each model does what it's best at.
+ *   GPT      — 写 (语感强，感官密度高，bake-off 48-50/50)
+ *   Claude   — 评、改 (冷静克制，分析精准)
+ *   DeepSeek — 出主意、灵感 (reasoner 发散思维)
+ *   Gemini   — 整理、记录、查错 (快，长上下文)
+ */
+function routeProvider(role: RoleName, baseProvider: ModelProvider): ModelProvider {
+  if (baseProvider !== "claude-code") return baseProvider;
+
+  const ROLE_PROVIDER: Partial<Record<RoleName, ModelProvider>> = {
+    writer: "gpt",              // 写：语感、感官密度
+    character: "gpt",           // 角色塑造：也是创作
+    idea: "deepseek",           // 灵感、构思：发散思维
+    architect: "deepseek",      // 结构设计：推理能力
+    editor: "claude-code",      // 审稿、改稿：冷静精准
+    reviewer: "claude-code",    // 独立评审：冷静克制
+    reader: "gemini",           // 评分：快速分析
+    continuity: "gemini",       // 查错：长上下文
+    chronicler: "gemini",       // 整理记录：总结能力
+  };
+
+  return ROLE_PROVIDER[role] ?? "gpt";
+}
+
 export async function GET(req: NextRequest) {
   try {
     const projectSlug = req.nextUrl.searchParams.get("projectSlug");
@@ -79,6 +104,7 @@ export async function POST(req: Request) {
     skipSaveHuman = false,
     skipSaveAgent = false,
     cleanContext = false,
+    skillGroup,
   } = body as {
     projectSlug: string;
     role: RoleName;
@@ -87,6 +113,7 @@ export async function POST(req: Request) {
     skipSaveHuman?: boolean;
     skipSaveAgent?: boolean;
     cleanContext?: boolean; // revision mode: skip chat history, only send message as-is
+    skillGroup?: string; // override skill group (e.g. "revision", "dialogue")
   };
 
   if (!projectSlug || !message) {
@@ -120,6 +147,7 @@ export async function POST(req: Request) {
     role,
     task: message,
     phase: project.phase ?? undefined,
+    skillGroup,
   });
 
   let llmMessages: { role: "user" | "assistant"; content: string }[];
@@ -170,9 +198,12 @@ export async function POST(req: Request) {
     }
   }
 
+  // Route to the best provider for this role
+  const effectiveProvider = routeProvider(role, provider);
+
   // Enable extended thinking for creative/strategic roles; skip for utility roles
   const THINKING_ROLES = new Set(["writer", "architect", "editor", "character", "idea"]);
-  const useThinking = provider === "claude" && THINKING_ROLES.has(role);
+  const useThinking = effectiveProvider === "claude" && THINKING_ROLES.has(role);
 
   // Stream response
   const encoder = new TextEncoder();
@@ -181,7 +212,7 @@ export async function POST(req: Request) {
       let fullText = "";
 
       try {
-        await stream(provider, llmMessages, { system: ctx.system, thinking: useThinking }, {
+        await stream(effectiveProvider, llmMessages, { system: ctx.system, thinking: useThinking }, {
           onText(text) {
             fullText += text;
             controller.enqueue(
@@ -195,7 +226,7 @@ export async function POST(req: Request) {
                 data: {
                   projectId: project.id,
                   role,
-                  model: provider,
+                  model: effectiveProvider,
                   phase: project.phase ?? "conception",
                   content: fullText,
                 },
@@ -207,21 +238,25 @@ export async function POST(req: Request) {
           },
           onError(error) {
             console.error("LLM stream error:", error);
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ error: error.message })}\n\n`
-              )
-            );
-            controller.close();
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: error.message })}\n\n`
+                )
+              );
+              controller.close();
+            } catch { /* controller already closed */ }
           },
-        });
+        }, req.signal);
       } catch (error) {
         console.error("Stream setup error:", error);
         const msg = error instanceof Error ? error.message : "Unknown error";
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
-        );
-        controller.close();
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
+          );
+          controller.close();
+        } catch { /* controller already closed */ }
       }
     },
   });
@@ -269,6 +304,29 @@ export async function PATCH(req: NextRequest) {
   } catch (err) {
     console.error("chat PATCH error:", err);
     return Response.json({ error: "导入失败" }, { status: 500 });
+  }
+}
+
+// PUT — save a standalone message (e.g. human note/comment)
+export async function PUT(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { role, content } = body as { role: string; content: string };
+    const projectSlug = req.nextUrl.searchParams.get("projectSlug");
+    if (!projectSlug || !content) {
+      return Response.json({ error: "projectSlug and content required" }, { status: 400 });
+    }
+    const project = await prisma.project.findUnique({ where: { slug: projectSlug } });
+    if (!project) {
+      return Response.json({ error: "project not found" }, { status: 404 });
+    }
+    const msg = await prisma.message.create({
+      data: { projectId: project.id, role: role || "human", content },
+    });
+    return Response.json(msg);
+  } catch (err) {
+    console.error("chat PUT error:", err);
+    return Response.json({ error: "保存失败" }, { status: 500 });
   }
 }
 

@@ -120,21 +120,41 @@ function cliEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-async function completeViaCLI(messages: LLMMessage[], opts: LLMOptions): Promise<string> {
+async function completeViaCLI(messages: LLMMessage[], opts: LLMOptions, signal?: AbortSignal): Promise<string> {
   const model = opts.model ?? MODEL_DEFAULTS["claude-code"];
   const prompt = formatMessagesForCLI(messages);
   const args = ["-p", "--output-format", "json", "--model", model, "--tools", ""];
   if (opts.system) args.push("--system-prompt", opts.system);
 
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const child = spawn("claude", args, { env: cliEnv() });
     let stdout = "";
     let stderr = "";
+    let killed = false;
+    const timeout = setTimeout(() => {
+      killed = true;
+      child.kill("SIGKILL");
+      reject(new Error("claude CLI timeout (90s)"));
+    }, 90_000);
+
+    if (signal) {
+      const onAbort = () => {
+        killed = true;
+        clearTimeout(timeout);
+        child.kill("SIGKILL");
+        reject(new Error("CLI aborted by caller"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      child.on("close", () => signal.removeEventListener("abort", onAbort));
+    }
+
     child.stdin.write(prompt);
     child.stdin.end();
     child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
     child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (killed) return;
       if (code !== 0) return reject(new Error(`claude CLI error: ${stderr}`));
       try {
         const parsed = JSON.parse(stdout.trim());
@@ -149,7 +169,8 @@ async function completeViaCLI(messages: LLMMessage[], opts: LLMOptions): Promise
 async function streamViaCLI(
   messages: LLMMessage[],
   opts: LLMOptions,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal
 ): Promise<void> {
   const model = opts.model ?? MODEL_DEFAULTS["claude-code"];
   const prompt = formatMessagesForCLI(messages);
@@ -160,19 +181,42 @@ async function streamViaCLI(
     const child = spawn("claude", args, { env: cliEnv() });
     let fullText = "";
     let stderr = "";
+    let lastDataAt = Date.now();
+    let killed = false;
+    const staleCheck = setInterval(() => {
+      if (Date.now() - lastDataAt > 90_000) {
+        clearInterval(staleCheck);
+        killed = true;
+        child.kill("SIGKILL");
+        reject(new Error("claude CLI timeout — no output for 90s"));
+      }
+    }, 10_000);
+
+    if (signal) {
+      const onAbort = () => {
+        clearInterval(staleCheck);
+        killed = true;
+        child.kill("SIGKILL");
+        reject(new Error("CLI aborted by caller"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      child.on("close", () => signal.removeEventListener("abort", onAbort));
+    }
+
     child.stdin.write(prompt);
     child.stdin.end();
     child.stdout.on("data", (d: Buffer) => {
+      lastDataAt = Date.now();
       const text = d.toString();
       fullText += text;
       callbacks.onText(text);
     });
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
     child.on("close", (code) => {
+      clearInterval(staleCheck);
+      if (killed) return;
       if (code !== 0) {
-        const err = new Error(`claude CLI error: ${stderr}`);
-        callbacks.onError?.(err);
-        reject(err);
+        reject(new Error(`claude CLI error: ${stderr}`));
       } else {
         callbacks.onDone(fullText);
         resolve();
@@ -181,17 +225,26 @@ async function streamViaCLI(
   });
 }
 
+// --- Fallback chain: if a provider fails, try claude-code then gpt ---
+
+const FALLBACK_CHAIN: ModelProvider[] = ["claude-code", "gpt"];
+
+function getFallbacks(failedProvider: ModelProvider): ModelProvider[] {
+  return FALLBACK_CHAIN.filter((p) => p !== failedProvider);
+}
+
 // --- Non-streaming completion ---
 
-export async function complete(
+async function completeOnce(
   provider: ModelProvider,
   messages: LLMMessage[],
-  opts: LLMOptions = {}
+  opts: LLMOptions = {},
+  signal?: AbortSignal
 ): Promise<string> {
   const maxTokens = opts.maxTokens ?? MAX_OUTPUT[provider];
 
   if (provider === "claude-code") {
-    return completeViaCLI(messages, opts);
+    return completeViaCLI(messages, opts, signal);
   }
 
   if (provider === "claude") {
@@ -227,8 +280,6 @@ export async function complete(
     ? [{ role: "system" as const, content: opts.system }, ...messages.filter((m) => m.role !== "system")]
     : messages;
 
-  // GPT and DeepSeek reasoner: use max_completion_tokens, no temperature
-  // Gemini: use max_tokens with temperature
   const isReasoning = provider === "gpt" || provider === "deepseek";
   const tokenParam = isReasoning
     ? { max_completion_tokens: maxTokens }
@@ -245,90 +296,131 @@ export async function complete(
   return response.choices[0]?.message?.content ?? "";
 }
 
+export async function complete(
+  provider: ModelProvider,
+  messages: LLMMessage[],
+  opts: LLMOptions = {},
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    return await completeOnce(provider, messages, opts, signal);
+  } catch (err) {
+    console.warn(`[llm] ${provider} failed, trying fallback:`, err instanceof Error ? err.message : err);
+    for (const fallback of getFallbacks(provider)) {
+      try {
+        console.log(`[llm] fallback → ${fallback}`);
+        return await completeOnce(fallback, messages, opts, signal);
+      } catch (fbErr) {
+        console.warn(`[llm] fallback ${fallback} also failed:`, fbErr instanceof Error ? fbErr.message : fbErr);
+      }
+    }
+    throw err; // all fallbacks failed, throw original error
+  }
+}
+
 // --- Streaming completion ---
+
+async function streamOnce(
+  provider: ModelProvider,
+  messages: LLMMessage[],
+  opts: LLMOptions = {},
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal
+): Promise<void> {
+  const maxTokens = opts.maxTokens ?? MAX_OUTPUT[provider];
+  let fullText = "";
+
+  if (provider === "claude-code") {
+    return streamViaCLI(messages, opts, callbacks, signal);
+  }
+
+  if (provider === "claude") {
+    const client = getAnthropic();
+    const userMessages = messages
+      .filter((m) => m.role !== "system")
+      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    const systemText =
+      opts.system || messages.find((m) => m.role === "system")?.content;
+
+    const useThinking = opts.thinking ?? false;
+    const s = client.messages.stream({
+      model: opts.model ?? MODEL_DEFAULTS.claude,
+      max_tokens: maxTokens,
+      ...(useThinking
+        ? { temperature: 1, thinking: { type: "enabled", budget_tokens: opts.thinkingBudget ?? 16000 } }
+        : { temperature: opts.temperature ?? 0.7 }),
+      ...(systemText ? { system: systemText } : {}),
+      messages: userMessages,
+    });
+
+    for await (const event of s) {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
+        fullText += event.delta.text;
+        callbacks.onText(event.delta.text);
+      }
+    }
+  } else {
+    // OpenAI-compatible
+    const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : getDeepSeek();
+    const model = opts.model ?? MODEL_DEFAULTS[provider];
+
+    const allMessages = opts.system
+      ? [{ role: "system" as const, content: opts.system }, ...messages.filter((m) => m.role !== "system")]
+      : messages;
+
+    const isReasoning = provider === "gpt" || provider === "deepseek";
+    const tokenParam = isReasoning
+      ? { max_completion_tokens: maxTokens }
+      : { max_tokens: maxTokens };
+
+    const s = await client.chat.completions.create({
+      model,
+      messages: allMessages,
+      ...tokenParam,
+      ...(provider === "gpt" ? { reasoning_effort: "high" } : {}),
+      ...(!isReasoning ? { temperature: opts.temperature ?? 0.7 } : {}),
+      stream: true,
+    });
+
+    for await (const chunk of s) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        fullText += delta;
+        callbacks.onText(delta);
+      }
+    }
+  }
+
+  callbacks.onDone(fullText);
+}
 
 export async function stream(
   provider: ModelProvider,
   messages: LLMMessage[],
   opts: LLMOptions = {},
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal
 ): Promise<void> {
-  const maxTokens = opts.maxTokens ?? MAX_OUTPUT[provider];
-  let fullText = "";
-
   try {
-    if (provider === "claude-code") {
-      return streamViaCLI(messages, opts, callbacks);
-    }
-
-    if (provider === "claude") {
-      const client = getAnthropic();
-      const userMessages = messages
-        .filter((m) => m.role !== "system")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-      const systemText =
-        opts.system || messages.find((m) => m.role === "system")?.content;
-
-      const useThinking = opts.thinking ?? false;
-      const s = client.messages.stream({
-        model: opts.model ?? MODEL_DEFAULTS.claude,
-        max_tokens: maxTokens,
-        ...(useThinking
-          ? { temperature: 1, thinking: { type: "enabled", budget_tokens: opts.thinkingBudget ?? 16000 } }
-          : { temperature: opts.temperature ?? 0.7 }),
-        ...(systemText ? { system: systemText } : {}),
-        messages: userMessages,
-      });
-
-      for await (const event of s) {
-        if (
-          event.type === "content_block_delta" &&
-          event.delta.type === "text_delta"
-        ) {
-          // Only stream text blocks, skip thinking blocks
-          fullText += event.delta.text;
-          callbacks.onText(event.delta.text);
-        }
-      }
-    } else {
-      // OpenAI-compatible
-      const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : getDeepSeek();
-      const model = opts.model ?? MODEL_DEFAULTS[provider];
-
-      const allMessages = opts.system
-        ? [{ role: "system" as const, content: opts.system }, ...messages.filter((m) => m.role !== "system")]
-        : messages;
-
-      const isReasoning = provider === "gpt" || provider === "deepseek";
-      const tokenParam = isReasoning
-        ? { max_completion_tokens: maxTokens }
-        : { max_tokens: maxTokens };
-
-      const s = await client.chat.completions.create({
-        model,
-        messages: allMessages,
-        ...tokenParam,
-        ...(provider === "gpt" ? { reasoning_effort: "high" } : {}),
-        ...(!isReasoning ? { temperature: opts.temperature ?? 0.7 } : {}),
-        stream: true,
-      });
-
-      for await (const chunk of s) {
-        // Only stream content, skip reasoning tokens
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          callbacks.onText(delta);
-        }
+    return await streamOnce(provider, messages, opts, callbacks, signal);
+  } catch (err) {
+    console.warn(`[llm] ${provider} stream failed, trying fallback:`, err instanceof Error ? err.message : err);
+    for (const fallback of getFallbacks(provider)) {
+      try {
+        console.log(`[llm] stream fallback → ${fallback}`);
+        return await streamOnce(fallback, messages, opts, callbacks, signal);
+      } catch (fbErr) {
+        console.warn(`[llm] stream fallback ${fallback} also failed:`, fbErr instanceof Error ? fbErr.message : fbErr);
       }
     }
-
-    callbacks.onDone(fullText);
-  } catch (error) {
+    // All fallbacks failed — call onError or throw
     if (callbacks.onError) {
-      callbacks.onError(error as Error);
+      callbacks.onError(err as Error);
     } else {
-      throw error;
+      throw err;
     }
   }
 }

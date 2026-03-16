@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import DraftWorkspace from "./DraftWorkspace";
 
 interface Message {
   id: string;
@@ -111,6 +112,11 @@ export default function ProjectPage() {
   const [allProjects, setAllProjects] = useState<{ slug: string; title: string; phase?: string }[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<{ name: string; content: string }[]>([]);
   const [draggingInput, setDraggingInput] = useState(false);
+  // @ mention dropdown
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const mentionStartRef = useRef<number>(-1); // cursor position of the '@'
   const revisionResolveRef = useRef<((feedback: string) => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stoppedRef = useRef(false);
@@ -412,13 +418,17 @@ export default function ProjectPage() {
         const last = humanMsgs[humanMsgs.length - 1];
         last?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 200);
-      // Auto-generate/update phase summary after each conversation round
-      generatePhaseSummary(currentPhase);
+      // Auto-generate phase summary only for planning phases (not during writing/review/final)
+      const skipSummaryPhases = ["draft", "review", "final"];
+      if (!skipSummaryPhases.includes(currentPhase)) {
+        generatePhaseSummary(currentPhase);
+      }
     }
   }, [streaming, streamText]);
 
   // Stream one agent's response, return the text
-  async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false, cleanContext = false): Promise<string> {
+  async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false, cleanContext = false, skillGroup?: string): Promise<string> {
+    console.log("[STREAM-V2] streamOneAgent called for role:", role);
     setStreamingRole(role);
     setStreamText("");
     setThinkingSeconds(0);
@@ -442,6 +452,7 @@ export default function ProjectPage() {
           skipSaveHuman,
           skipSaveAgent,
           cleanContext,
+          ...(skillGroup ? { skillGroup } : {}),
         }),
         signal: controller.signal,
       });
@@ -456,10 +467,24 @@ export default function ProjectPage() {
       let fullText = "";
 
       if (reader) {
+        // Timeout: if no data for 2 minutes, abort the stream
+        let lastDataAt = Date.now();
+        const STREAM_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+        const timeoutCheck = setInterval(() => {
+          console.log("[TIMEOUT-CHECK] interval fired, idle:", Math.round((Date.now() - lastDataAt) / 1000), "s");
+          if (Date.now() - lastDataAt > STREAM_TIMEOUT) {
+            clearInterval(timeoutCheck);
+            console.log("[TIMEOUT-CHECK] ABORTING — no data for", STREAM_TIMEOUT / 1000, "s");
+            console.warn(`[stream] no data for ${STREAM_TIMEOUT / 1000}s, aborting`);
+            controller.abort();
+          }
+        }, 5000);
+
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            lastDataAt = Date.now();
             const chunk = decoder.decode(value);
             for (const line of chunk.split("\n")) {
               if (line.startsWith("data: ")) {
@@ -483,10 +508,11 @@ export default function ProjectPage() {
         } catch (readErr) {
           if (controller.signal.aborted) {
             reader.cancel().catch(() => {});
-            // Return partial text on abort
             return fullText;
           }
           throw readErr;
+        } finally {
+          clearInterval(timeoutCheck);
         }
       }
 
@@ -508,6 +534,165 @@ export default function ProjectPage() {
       .map((m) => m.content.replace("📋 **修稿反思**\n\n", "").trim());
     if (reflections.length === 0) return "";
     return `\n\n---\n\n## 往期修稿反思（避免重复犯错）\n\n${reflections.join("\n\n---\n\n")}`;
+  }
+
+  // Save a draft section to disk via API
+  async function saveDraft(sectionId: string, content: string) {
+    try {
+      const res = await fetch("/api/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectSlug: slug, sectionId, content }),
+      });
+      if (res.ok) {
+        console.log(`[draft] saved ${sectionId} (${content.length} chars)`);
+      }
+    } catch (err) {
+      console.error("[draft] save failed:", err);
+    }
+  }
+
+  // Extract the prose content from a writer message (strip markdown headers, revision notes, etc.)
+  function extractProseContent(text: string): string {
+    // Remove common writer output wrappers
+    let prose = text;
+    // Remove ```markdown ... ``` wrappers
+    prose = prose.replace(/^```(?:markdown)?\s*\n?/gm, "").replace(/\n?```\s*$/gm, "");
+    // Remove "# 标题" headers that are chapter titles
+    prose = prose.replace(/^#\s+.+\n+/gm, "");
+    // Remove adoption checklists "### 采纳清单" and everything after
+    const adoptIdx = prose.indexOf("### 采纳清单");
+    if (adoptIdx > 0) prose = prose.slice(0, adoptIdx);
+    const adoptIdx2 = prose.indexOf("## 采纳清单");
+    if (adoptIdx2 > 0) prose = prose.slice(0, adoptIdx2);
+    return prose.trim();
+  }
+
+  // Prompt user to save a draft section after writer output is approved
+  async function promptSaveDraft(writerContent: string) {
+    const prose = extractProseContent(writerContent);
+    if (prose.length < 50) return; // too short, probably not actual prose
+
+    // Auto-detect section name from the conversation context
+    // Look at the last human message for hints like "阳三", "阴一.2", etc.
+    const recentHuman = messages.filter((m) => m.role === "human").slice(-3);
+    const chapterPattern = /[阳阴][一二三四五六七八][.\.]?\d*/;
+    let detectedSection = "";
+    for (const m of recentHuman.reverse()) {
+      const match = m.content.match(chapterPattern);
+      if (match) {
+        detectedSection = match[0].replace(".", ".");
+        break;
+      }
+    }
+
+    if (detectedSection) {
+      // Auto-save with detected section name
+      await saveDraft(detectedSection, prose);
+      setMessages((prev) => [...prev, {
+        id: `system-save-${Date.now()}`,
+        role: "human",
+        content: `💾 已自动保存为 **${detectedSection}** (${prose.length}字)`,
+        createdAt: new Date().toISOString(),
+      }]);
+    }
+    // If no section detected, don't auto-save — user will need to specify
+  }
+
+  // Shared revision loop: editor→writer→editor cycles with reader scoring
+  async function runRevisionLoop(initialEditorReview: string) {
+    const MAX_ROUNDS = 3;
+    let latestEditorReview = initialEditorReview;
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const humanFeedback = await waitForRevisionFeedback();
+      if (humanFeedback) {
+        setMessages((prev) => [...prev, {
+          id: `human-feedback-${Date.now()}`,
+          role: "human",
+          content: humanFeedback,
+          createdAt: new Date().toISOString(),
+        }]);
+      }
+
+      // Writer revises with clean context
+      const feedbackSection = humanFeedback
+        ? `\n\n---\n\n## 创作者意见（优先级最高）\n\n${humanFeedback}`
+        : "";
+      const writerPrompt = `请根据以下审稿意见修改稿件。
+
+⚠️ 改稿铁律：
+1. 【守住清单】里的内容一字不动
+2. 只改铁面明确指出的问题，不要动其他地方
+3. 修改方向是写得更好，不是写得更短更安全
+4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
+5. 改完的稿件不应比原稿短超过10%
+
+输出修改后的完整文本，并附采纳清单。
+
+---
+
+## 审稿意见
+
+${latestEditorReview}${feedbackSection}${getPastReflections()}`;
+      // Writer revises with "revision" skill group (compression, surgical-revision, voice-consistency)
+      const writerText = await streamOneAgent("writer", writerPrompt, true, true, true, "revision");
+      const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+      setStreamText("");
+      setMessages((prev) => [...prev, {
+        id: `agent-${Date.now()}-writer-r${round}`,
+        role: "writer", model: activeProvider, content: writerDisplay,
+        createdAt: new Date().toISOString(), intermediate: true,
+      }]);
+
+      // Editor re-reviews with clean context (routed to Gemini via API — no CLI wait)
+      const editorPrompt = `请审稿。按你的审稿流程审核以下稿件。注意：必须先列出【守住清单】，然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。
+
+---
+
+## 稿件
+
+${writerDisplay}`;
+      const editorText = await streamOneAgent("editor", editorPrompt, true, true, true);
+      const editorApproved = editorText.includes("[APPROVED]");
+      const editorDisplay = editorText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+      latestEditorReview = editorDisplay;
+      setStreamText("");
+      setMessages((prev) => [...prev, {
+        id: `agent-${Date.now()}-editor-r${round}`,
+        role: "editor", model: activeProvider, content: editorDisplay,
+        createdAt: new Date().toISOString(), intermediate: true,
+      }]);
+
+      if (editorApproved) {
+        // Auto-save the approved draft
+        await promptSaveDraft(writerDisplay);
+        break;
+      }
+    }
+
+    // Reflection
+    const reflectPrompt = `刚才完成了一轮修稿循环。请用不超过150字写一份简短的反思备忘录，格式如下：
+
+### 反复出现的问题
+- [1-3条]
+
+### 有效的改进
+- [1-3条]
+
+### 下次写作注意
+- [给妙笔的具体提醒，1-3条]
+
+只输出备忘录本身，不要多余的话。`;
+    const reflectText = await streamOneAgent("editor", reflectPrompt, true, true, true);
+    const reflectDisplay = reflectText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
+    setStreamText("");
+    setMessages((prev) => [...prev, {
+      id: `agent-${Date.now()}-reflection`,
+      role: "editor", model: activeProvider,
+      content: `📋 **修稿反思**\n\n${reflectDisplay}`,
+      createdAt: new Date().toISOString(),
+    }]);
   }
 
   // Pause revision loop and wait for user to either submit feedback or click continue.
@@ -638,12 +823,32 @@ export default function ProjectPage() {
     // Helper: check if user stopped the discussion
     const wasStopped = () => stoppedRef.current;
 
-    // Get the panel of agents for current phase
-    const panel = PHASE_PANEL[currentPhase] ?? ["idea"];
+    // Get the panel of agents for current phase, reordered by @ mentions
+    const basePanel = PHASE_PANEL[currentPhase] ?? ["idea"];
+    // Parse @mentions: match @label (e.g. @铁面, @妙笔) → resolve to role key
+    const mentionedRoles: string[] = [];
+    const labelToRole: Record<string, string> = {};
+    for (const [role, meta] of Object.entries(ROLE_META)) {
+      if (role !== "human") labelToRole[meta.label] = role;
+    }
+    const mentionRegex = /@([\u4e00-\u9fff\w]+)/g;
+    let match;
+    while ((match = mentionRegex.exec(msg)) !== null) {
+      const role = labelToRole[match[1]];
+      if (role && !mentionedRoles.includes(role)) mentionedRoles.push(role);
+    }
+    // Reorder panel: mentioned agents first (in mention order), then rest of panel
+    let panel: string[];
+    if (mentionedRoles.length > 0) {
+      // Include mentioned agents even if not in default panel
+      const rest = basePanel.filter((r) => !mentionedRoles.includes(r));
+      panel = [...mentionedRoles, ...rest];
+    } else {
+      panel = basePanel;
+    }
     let sawPhaseComplete = false;
     const previousRoles: string[] = [];
     const isDraftLoop = currentPhase === "draft" || currentPhase === "review";
-    const MAX_REVISION_ROUNDS = 3;
 
     try {
       // --- Standard panel pass (all phases) ---
@@ -679,137 +884,16 @@ export default function ProjectPage() {
         if (wasStopped()) break;
         if (phaseComplete) sawPhaseComplete = true;
 
-        // --- Draft phase: pause after writer output and wait for human decision ---
-        // Human must approve each chunk before continuing or triggering review.
-        if (currentPhase === "draft" && agentRole === "writer") {
-          setWriterPause(true);
-          break; // Don't auto-chain editor — human decides when to trigger review
-        }
-
-        // --- Draft loop: writer→editor done, now loop revisions if not approved ---
-        if (isDraftLoop && agentRole === "editor" && !approved) {
-          let latestEditorReview = displayText;
-
-          for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
-            // Pause and let user inject feedback
-            const humanFeedback = await waitForRevisionFeedback();
-            if (humanFeedback) {
-              setMessages((prev) => [...prev, {
-                id: `human-feedback-${Date.now()}`,
-                role: "human",
-                content: humanFeedback,
-                createdAt: new Date().toISOString(),
-              }]);
-            }
-
-            const feedbackSection = humanFeedback
-              ? `\n\n---\n\n## 创作者意见（优先级最高）\n\n${humanFeedback}`
-              : "";
-            const writerCleanPrompt = `请根据以下审稿意见修改稿件。
-
-⚠️ 改稿铁律：
-1. 【守住清单】里的内容一字不动
-2. 只改铁面明确指出的问题，不要动其他地方
-3. 修改方向是写得更好，不是写得更短更安全
-4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
-5. 改完的稿件不应比原稿短超过10%
-
-输出修改后的完整文本，并附采纳清单。
-
----
-
-## 审稿意见
-
-${latestEditorReview}${feedbackSection}${getPastReflections()}`;
-            const writerText = await streamOneAgent("writer", writerCleanPrompt, true, true, true);
-            previousRoles.push("writer");
-            const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-
-            setStreamText("");
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `agent-${Date.now()}-writer-r${round}`,
-                role: "writer",
-                model: activeProvider,
-                content: writerDisplay,
-                createdAt: new Date().toISOString(),
-                intermediate: true,
-              },
-            ]);
-
-            const editorCleanPrompt = `请审稿。按你的审稿流程审核以下稿件。注意：必须先列出【守住清单】，然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。
-
----
-
-## 稿件
-
-${writerDisplay}`;
-            const editorText = await streamOneAgent("editor", editorCleanPrompt, true, true, true);
-            previousRoles.push("editor");
-            const editorApproved = editorText.includes("[APPROVED]");
-            const editorDisplay = editorText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-            latestEditorReview = editorDisplay;
-
-            setStreamText("");
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `agent-${Date.now()}-editor-r${round}`,
-                role: "editor",
-                model: activeProvider,
-                content: editorDisplay,
-                createdAt: new Date().toISOString(),
-                intermediate: true,
-              },
-            ]);
-
-            // Reader scores the revised draft (clean context)
-            const readerScorePrompt2 = `请快速评分。只输出评分表和一句话感受，不要写完整阅读报告。
-
----
-
-## 稿件
-
-${writerDisplay}`;
-            const readerText2 = await streamOneAgent("reader", readerScorePrompt2, true, true, true);
-            const readerDisplay2 = readerText2.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-            setStreamText("");
-            setMessages((prev) => [...prev, {
-              id: `agent-${Date.now()}-reader-r${round}`,
-              role: "reader", model: activeProvider, content: readerDisplay2,
-              createdAt: new Date().toISOString(), intermediate: true,
-            }]);
-
-            if (editorApproved) {
-              if (writerText.includes("[PHASE_COMPLETE]")) sawPhaseComplete = true;
-              break;
-            }
+        // --- Draft/review: editor reviewed ---
+        if (isDraftLoop && agentRole === "editor") {
+          if (approved) {
+            // Editor approved directly — save the writer's output
+            const lastWriterMsg = [...messages].reverse().find((m) => m.role === "writer");
+            if (lastWriterMsg) await promptSaveDraft(lastWriterMsg.content);
+          } else {
+            // Not approved → enter revision loop
+            await runRevisionLoop(displayText);
           }
-
-          // Reflection after revision loop
-          const reflectPrompt = `刚才完成了一轮修稿循环。请用不超过150字写一份简短的反思备忘录，格式如下：
-
-### 反复出现的问题
-- [1-3条]
-
-### 有效的改进
-- [1-3条]
-
-### 下次写作注意
-- [给妙笔的具体提醒，1-3条]
-
-只输出备忘录本身，不要多余的话。`;
-          const reflectText = await streamOneAgent("editor", reflectPrompt, true, true, true);
-          const reflectDisplay = reflectText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          setStreamText("");
-          setMessages((prev) => [...prev, {
-            id: `agent-${Date.now()}-reflection`,
-            role: "editor",
-            model: activeProvider,
-            content: `📋 **修稿反思**\n\n${reflectDisplay}`,
-            createdAt: new Date().toISOString(),
-          }]);
         }
       }
 
@@ -948,13 +1032,13 @@ ${writerDisplay}`;
   }
 
   // Trigger review: hand off to editor, then auto-run writer→editor revision loop
+  // Trigger review: editor reviews, then revision loop if not approved
   async function triggerReview() {
     if (streaming) return;
     setWriterPause(false);
     setStreaming(true);
     setError("");
     setSaveStatus("saving");
-    const MAX_REVISION_ROUNDS = 3;
 
     try {
       const editorPrompt = getFollowUpPrompt("review", "editor", ["writer"]);
@@ -964,120 +1048,13 @@ ${writerDisplay}`;
       setStreamText("");
       setMessages((prev) => [...prev, {
         id: `agent-${Date.now()}-editor`,
-        role: "editor",
-        model: activeProvider,
-        content: editorDisplay,
+        role: "editor", model: activeProvider, content: editorDisplay,
         createdAt: new Date().toISOString(),
       }]);
 
       if (!approved) {
-        let latestEditorReview = editorDisplay;
-
-        for (let round = 0; round < MAX_REVISION_ROUNDS; round++) {
-          // Pause and let user inject feedback before next revision round
-          const humanFeedback = await waitForRevisionFeedback();
-          if (humanFeedback) {
-            // Show user's feedback as a message
-            setMessages((prev) => [...prev, {
-              id: `human-feedback-${Date.now()}`,
-              role: "human",
-              content: humanFeedback,
-              createdAt: new Date().toISOString(),
-            }]);
-          }
-
-          // Writer revises with CLEAN CONTEXT
-          const feedbackSection = humanFeedback
-            ? `\n\n---\n\n## 创作者意见（优先级最高）\n\n${humanFeedback}`
-            : "";
-          const writerCleanPrompt = `请根据以下审稿意见修改稿件。
-
-⚠️ 改稿铁律：
-1. 【守住清单】里的内容一字不动
-2. 只改铁面明确指出的问题，不要动其他地方
-3. 修改方向是写得更好，不是写得更短更安全
-4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
-5. 改完的稿件不应比原稿短超过10%
-
-输出修改后的完整文本，并附采纳清单。
-
----
-
-## 审稿意见
-
-${latestEditorReview}${feedbackSection}${getPastReflections()}`;
-          const writerText = await streamOneAgent("writer", writerCleanPrompt, true, true, true);
-          const writerDisplay = writerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          setStreamText("");
-          setMessages((prev) => [...prev, {
-            id: `agent-${Date.now()}-writer-r${round}`,
-            role: "writer", model: activeProvider, content: writerDisplay,
-            createdAt: new Date().toISOString(), intermediate: true,
-          }]);
-
-          // Editor reviews with CLEAN CONTEXT
-          const editorCleanPrompt = `请审稿。按你的审稿流程审核以下稿件。注意：必须先列出【守住清单】，然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。
-
----
-
-## 稿件
-
-${writerDisplay}`;
-          const editorRoundText = await streamOneAgent("editor", editorCleanPrompt, true, true, true);
-          const editorRoundApproved = editorRoundText.includes("[APPROVED]");
-          const editorRoundDisplay = editorRoundText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          latestEditorReview = editorRoundDisplay;
-          setStreamText("");
-          setMessages((prev) => [...prev, {
-            id: `agent-${Date.now()}-editor-r${round}`,
-            role: "editor", model: activeProvider, content: editorRoundDisplay,
-            createdAt: new Date().toISOString(), intermediate: true,
-          }]);
-
-          // Reader scores the revised draft (clean context)
-          const readerScorePrompt = `请快速评分。只输出评分表和一句话感受，不要写完整阅读报告。
-
----
-
-## 稿件
-
-${writerDisplay}`;
-          const readerText = await streamOneAgent("reader", readerScorePrompt, true, true, true);
-          const readerDisplay = readerText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-          setStreamText("");
-          setMessages((prev) => [...prev, {
-            id: `agent-${Date.now()}-reader-r${round}`,
-            role: "reader", model: activeProvider, content: readerDisplay,
-            createdAt: new Date().toISOString(), intermediate: true,
-          }]);
-
-          if (editorRoundApproved) break;
-        }
+        await runRevisionLoop(editorDisplay);
       }
-
-      // Reflection: editor summarizes what was learned this revision cycle
-      const reflectionPrompt = `刚才完成了一轮修稿循环。请用不超过150字写一份简短的反思备忘录，格式如下：
-
-### 反复出现的问题
-- [1-3条]
-
-### 有效的改进
-- [1-3条]
-
-### 下次写作注意
-- [给妙笔的具体提醒，1-3条]
-
-只输出备忘录本身，不要多余的话。`;
-      const reflectionText = await streamOneAgent("editor", reflectionPrompt, true, true, true);
-      const reflectionDisplay = reflectionText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-      setStreamText("");
-      setMessages((prev) => [...prev, {
-        id: `agent-${Date.now()}-reflection`,
-        role: "editor",
-        model: activeProvider,
-        content: `📋 **修稿反思**\n\n${reflectionDisplay}`,
-        createdAt: new Date().toISOString(),
-      }]);
 
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
@@ -1153,7 +1130,92 @@ ${docText}
     abortRef.current?.abort();
   }
 
+  // --- @ mention helpers ---
+  const MENTION_CANDIDATES = Object.entries(ROLE_META)
+    .filter(([k]) => k !== "human" && k !== "context")
+    .map(([role, meta]) => ({ role, label: meta.label, icon: meta.icon }));
+
+  function getMentionCandidates(filter: string) {
+    if (!filter) return MENTION_CANDIDATES;
+    return MENTION_CANDIDATES.filter((c) => c.label.includes(filter) || c.role.includes(filter.toLowerCase()));
+  }
+
+  function insertMention(candidate: { role: string; label: string }) {
+    const start = mentionStartRef.current;
+    if (start < 0) return;
+    const before = input.slice(0, start); // everything before '@'
+    const afterAt = input.slice(start + 1); // everything after '@'
+    // Find end of current filter text (until space or end)
+    const spaceIdx = afterAt.search(/[\s，。！？]/);
+    const after = spaceIdx >= 0 ? afterAt.slice(spaceIdx) : "";
+    const newInput = `${before}@${candidate.label}${after ? after : " "}`;
+    setInput(newInput);
+    setMentionOpen(false);
+    setMentionFilter("");
+    mentionStartRef.current = -1;
+    // Focus back and set cursor after the inserted mention
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        const cursorPos = before.length + 1 + candidate.label.length + 1;
+        inputRef.current.setSelectionRange(cursorPos, cursorPos);
+      }
+    }, 0);
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setInput(val);
+
+    const cursor = e.target.selectionStart ?? val.length;
+    // Look backwards from cursor for an '@' that starts a mention
+    const textBeforeCursor = val.slice(0, cursor);
+    const atIdx = textBeforeCursor.lastIndexOf("@");
+    if (atIdx >= 0) {
+      // Only trigger if @ is at start or preceded by whitespace
+      const charBefore = atIdx > 0 ? textBeforeCursor[atIdx - 1] : " ";
+      const filterText = textBeforeCursor.slice(atIdx + 1);
+      // No spaces in the filter (not a mention if there's a space after @)
+      if ((charBefore === " " || charBefore === "\n" || atIdx === 0) && !/\s/.test(filterText)) {
+        const candidates = getMentionCandidates(filterText);
+        if (candidates.length > 0) {
+          setMentionOpen(true);
+          setMentionFilter(filterText);
+          setMentionIdx(0);
+          mentionStartRef.current = atIdx;
+          return;
+        }
+      }
+    }
+    setMentionOpen(false);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
+    // @ mention dropdown navigation
+    if (mentionOpen) {
+      const candidates = getMentionCandidates(mentionFilter);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIdx((i) => (i + 1) % candidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIdx((i) => (i - 1 + candidates.length) % candidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (candidates[mentionIdx]) insertMention(candidates[mentionIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (streaming && input.trim()) {
@@ -1391,6 +1453,11 @@ ${docText}
 
           <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border-light/40 to-transparent" />
         </header>
+
+        {currentPhase === "draft" || currentPhase === "review" ? (
+          <DraftWorkspace slug={slug} activeProvider={activeProvider} />
+        ) : (
+          <>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-6 space-y-6">
@@ -1841,17 +1908,59 @@ ${docText}
                     <textarea
                       value={writerFeedback}
                       onChange={(e) => setWriterFeedback(e.target.value)}
-                      placeholder="修改意见：节奏太慢、对话不够、换个开头…（可选）"
+                      placeholder="留言或修改意见…"
                       disabled={streaming}
                       rows={1}
                       className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-2.5 outline-none focus:border-accent/30 text-[14px] disabled:opacity-40 resize-none min-h-[40px] max-h-[120px] transition-all placeholder:text-muted/20"
                     />
                     <button
-                      onClick={() => continueWriting(writerFeedback)}
+                      onClick={async () => {
+                        const text = writerFeedback.trim();
+                        if (!text) return;
+                        const msg: Message = {
+                          id: `human-note-${Date.now()}`,
+                          role: "human",
+                          content: text,
+                          createdAt: new Date().toISOString(),
+                        };
+                        setMessages((prev) => [...prev, msg]);
+                        setWriterFeedback("");
+                        await fetch(`/api/chat?projectSlug=${slug}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(msg),
+                        });
+                      }}
                       disabled={streaming || !writerFeedback.trim()}
                       className="px-4 py-2.5 bg-surface/60 border border-border/60 hover:border-accent/40 disabled:opacity-30 rounded-xl text-sm text-muted/60 transition-all shrink-0"
                     >
-                      修改
+                      备注
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const text = writerFeedback.trim();
+                        if (!text) return;
+                        // Save comment as human message first
+                        const msg: Message = {
+                          id: `human-note-${Date.now()}`,
+                          role: "human",
+                          content: text,
+                          createdAt: new Date().toISOString(),
+                        };
+                        setMessages((prev) => [...prev, msg]);
+                        setWriterFeedback("");
+                        fetch(`/api/chat?projectSlug=${slug}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(msg),
+                        });
+                        // Then trigger rewrite
+                        continueWriting(text);
+                      }}
+                      disabled={streaming || !writerFeedback.trim()}
+                      className="px-4 py-2.5 bg-amber-600/60 hover:bg-amber-600/80 disabled:opacity-30 rounded-xl text-sm font-medium transition-all shrink-0"
+                    >
+                      改写
                     </button>
                   </div>
                 </div>
@@ -1900,15 +2009,35 @@ ${docText}
                     >
                       📎
                     </button>
-                    <textarea
-                      ref={inputRef}
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder={streaming ? "输入后按发送可打断讨论并加入意见..." : (attachedFiles.length > 0 ? "说说这些材料，或直接发送..." : "说点什么...")}
-                      rows={1}
-                      className="flex-1 bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
-                    />
+                    <div className="flex-1 relative">
+                      <textarea
+                        ref={inputRef}
+                        value={input}
+                        onChange={handleInputChange}
+                        onKeyDown={handleKeyDown}
+                        onBlur={() => setTimeout(() => setMentionOpen(false), 150)}
+                        placeholder={streaming ? "输入后按发送可打断讨论并加入意见..." : (attachedFiles.length > 0 ? "说说这些材料，或直接发送..." : "说点什么...  输入@选择角色")}
+                        rows={1}
+                        className="w-full bg-surface/60 border border-border/60 rounded-xl px-4 py-3 outline-none focus:border-accent/30 text-[15px] resize-none min-h-[48px] max-h-[200px] transition-all placeholder:text-muted/25 focus:bg-surface/80 focus:shadow-[0_0_20px_rgba(94,138,133,0.06)]"
+                      />
+                      {mentionOpen && (
+                        <div className="absolute bottom-full left-0 mb-2 bg-surface border border-border/60 rounded-xl shadow-xl overflow-hidden min-w-[180px] z-50">
+                          {getMentionCandidates(mentionFilter).map((c, i) => (
+                            <button
+                              key={c.role}
+                              onMouseDown={(e) => { e.preventDefault(); insertMention(c); }}
+                              className={`w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition-colors ${
+                                i === mentionIdx ? "bg-accent/20 text-accent" : "hover:bg-surface-hover/50 text-foreground/70"
+                              }`}
+                            >
+                              <span>{c.icon}</span>
+                              <span className="font-medium">{c.label}</span>
+                              <span className="text-muted/40 text-xs ml-auto">{c.role}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {streaming ? (
                       <button
                         onClick={() => {
@@ -1950,10 +2079,12 @@ ${docText}
 
             </div>
           </div>
+          </>
+        )}
         </div>
 
         {/* Right: Sidebar — tools */}
-        <aside className="w-[640px] shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto hidden lg:block">
+        <aside className={`${currentPhase === "draft" || currentPhase === "review" ? "hidden" : "w-[640px]"} shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto lg:block`}>
           <div className="p-5 space-y-6">
             {/* Roundtable members */}
             <div>
