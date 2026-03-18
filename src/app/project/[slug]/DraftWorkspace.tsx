@@ -14,6 +14,14 @@ interface Beat {
   wordCount?: number;
 }
 
+interface HistoryRound {
+  round: number;
+  draft: string;
+  review?: string;
+  approved?: boolean;
+  timestamp: string;
+}
+
 interface DraftWorkspaceProps {
   slug: string;
   activeProvider: string;
@@ -31,8 +39,8 @@ const STATUS_LABEL: Record<string, { icon: string; color: string; text: string }
 export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceProps) {
   const [beats, setBeats] = useState<Beat[]>([]);
   const [currentBeatId, setCurrentBeatId] = useState<string | null>(null);
-  const [draftContent, setDraftContent] = useState(""); // current beat's draft text
-  const [isChapterView, setIsChapterView] = useState(false); // true when viewing chapter-level draft
+  const [draftContent, setDraftContent] = useState("");
+  const [isChapterView, setIsChapterView] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingRole, setStreamingRole] = useState("");
@@ -40,9 +48,12 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
   const [userFeedback, setUserFeedback] = useState("");
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"idle" | "writing" | "reviewing" | "revising" | "roundtable">("idle");
-  const [editorReview, setEditorReview] = useState(""); // latest editor review text
+  const [editorReview, setEditorReview] = useState("");
   const [revisionRound, setRevisionRound] = useState(0);
   const [beatSummaries, setBeatSummaries] = useState<Record<string, string>>({});
+  const [approving, setApproving] = useState(false);
+  const [historyRounds, setHistoryRounds] = useState<HistoryRound[]>([]);
+  const [expandedRounds, setExpandedRounds] = useState<Set<number>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -72,12 +83,52 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
 
   const currentBeat = beats.find(b => b.id === currentBeatId);
 
-  // Get the next unwritten beat
   function getNextBeat(): Beat | undefined {
     return beats.find(b => b.status === "blank" || b.status === "writing");
   }
 
-  // Stream one agent call, returns the full text
+  // --- History helpers ---
+
+  async function loadHistory(beatId: string) {
+    try {
+      const res = await fetch(`/api/draft-history?projectSlug=${encodeURIComponent(slug)}&beatId=${encodeURIComponent(beatId)}`);
+      const data = await res.json();
+      setHistoryRounds(data.rounds || []);
+      setExpandedRounds(new Set());
+    } catch {
+      setHistoryRounds([]);
+    }
+  }
+
+  async function saveHistoryDraft(beatId: string, draft: string) {
+    await fetch("/api/draft-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectSlug: slug, beatId, draft }),
+    }).catch(() => {});
+    await loadHistory(beatId);
+  }
+
+  async function saveHistoryReview(beatId: string, review: string, approved: boolean) {
+    await fetch("/api/draft-history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectSlug: slug, beatId, review, approved }),
+    }).catch(() => {});
+    await loadHistory(beatId);
+  }
+
+  function toggleRound(round: number) {
+    setExpandedRounds(prev => {
+      const next = new Set(prev);
+      if (next.has(round)) next.delete(round);
+      else next.add(round);
+      return next;
+    });
+  }
+
+  // --- Streaming ---
+
   async function streamAgent(role: string, message: string, opts?: { cleanContext?: boolean; skillGroup?: string }): Promise<string> {
     setStreamingRole(role);
     setStreamText("");
@@ -120,10 +171,8 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
         let lastDataAt = Date.now();
         const STREAM_TIMEOUT = 2 * 60 * 1000;
         const timeoutCheck = setInterval(() => {
-          console.log("[TIMEOUT-CHECK] interval fired, idle:", Math.round((Date.now() - lastDataAt) / 1000), "s");
           if (Date.now() - lastDataAt > STREAM_TIMEOUT) {
             clearInterval(timeoutCheck);
-            console.log("[TIMEOUT-CHECK] ABORTING — no data for", STREAM_TIMEOUT / 1000, "s");
             controller.abort();
           }
         }, 5000);
@@ -174,7 +223,8 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
     }
   }
 
-  // Build the structured prompt for writer
+  // --- Prompts ---
+
   function buildWriterPrompt(beat: Beat, userInstruction?: string): string {
     const beatIndex = beats.findIndex(b => b.id === beat.id);
     const priorSummaries = beats
@@ -188,104 +238,31 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
       .map(b => `[${STATUS_LABEL[b.status].text}] ${b.id}: ${b.title} — ${b.summary}`)
       .join("\n");
 
-    let prompt = `# 写作任务
-
-## 你要写的beat
-- **ID**: ${beat.id}
-- **标题**: ${beat.title}
-- **内容**: ${beat.summary}
-- **目标字数**: ${beat.wordBudget}字
-
-## 本章所有beat
-${beatListStr}
-
-`;
+    let prompt = `# 写作任务\n\n## 你要写的beat\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 本章所有beat\n${beatListStr}\n\n`;
 
     if (priorSummaries) {
-      prompt += `## 故事到此为止（前情摘要）
-
-${priorSummaries}
-
-`;
+      prompt += `## 故事到此为止（前情摘要）\n\n${priorSummaries}\n\n`;
     }
-
     if (userInstruction) {
-      prompt += `## 创作者指令（优先级最高）
-
-${userInstruction}
-
-`;
+      prompt += `## 创作者指令（优先级最高）\n\n${userInstruction}\n\n`;
     }
-
-    prompt += `## 要求
-1. 只写这一个beat，不要写前后的内容
-2. 目标${beat.wordBudget}字左右，不要太长也不要太短
-3. 衔接好上文的语感和节奏
-4. 直接输出正文，不要加标题、不要加解释`;
-
+    prompt += `## 要求\n1. 只写这一个beat，不要写前后的内容\n2. 目标${beat.wordBudget}字左右，不要太长也不要太短\n3. 衔接好上文的语感和节奏\n4. 直接输出正文，不要加标题、不要加解释`;
     return prompt;
   }
 
-  // Build editor prompt
   function buildEditorPrompt(beat: Beat, writerOutput: string): string {
-    return `# 审稿任务
-
-## beat要求
-- **ID**: ${beat.id}
-- **标题**: ${beat.title}
-- **内容要求**: ${beat.summary}
-- **目标字数**: ${beat.wordBudget}字
-
-## 待审稿件
-
-${writerOutput}
-
-## 审稿规则
-1. 先列出【守住清单】——写得好的段落/句子，改稿时不可删改
-2. 再列问题（按P0/P1/P2分级）
-3. 如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]
-4. 不要自己改写，只提意见`;
+    return `# 审稿任务\n\n## beat要求\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容要求**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 待审稿件\n\n${writerOutput}\n\n## 审稿规则\n1. 先列出【守住清单】——写得好的段落/句子，改稿时不可删改\n2. 再列问题（按P0/P1/P2分级）\n3. 如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]\n4. 不要自己改写，只提意见`;
   }
 
-  // Build revision prompt
   function buildRevisionPrompt(writerOutput: string, editorReviewText: string, userNotes?: string): string {
-    let prompt = `请根据以下审稿意见修改稿件。
-
-⚠️ 改稿铁律：
-1. 【守住清单】里的内容一字不动
-2. 只改铁面明确指出的问题，不要动其他地方
-3. 修改方向是写得更好，不是写得更短更安全
-4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
-5. 改完的稿件不应比原稿短超过10%
-
-输出修改后的完整文本。
-
----
-
-## 原稿
-
-${writerOutput}
-
----
-
-## 审稿意见
-
-${editorReviewText}`;
-
+    let prompt = `请根据以下审稿意见修改稿件。\n\n⚠️ 改稿铁律：\n1. 【守住清单】里的内容一字不动\n2. 只改铁面明确指出的问题，不要动其他地方\n3. 修改方向是写得更好，不是写得更短更安全\n4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括\n5. 改完的稿件不应比原稿短超过10%\n\n输出修改后的完整文本。\n\n---\n\n## 原稿\n\n${writerOutput}\n\n---\n\n## 审稿意见\n\n${editorReviewText}`;
     if (userNotes) {
-      prompt += `
-
----
-
-## 创作者意见（优先级最高）
-
-${userNotes}`;
+      prompt += `\n\n---\n\n## 创作者意见（优先级最高）\n\n${userNotes}`;
     }
-
     return prompt;
   }
 
-  // === Main workflow actions ===
+  // --- Workflow actions ---
 
   async function startWriting(beat: Beat, instruction?: string) {
     if (streaming) return;
@@ -306,6 +283,8 @@ ${userNotes}`;
       setStreamText("");
       setMode("idle");
       updateBeatStatus(beat.id, "writing");
+      // Save draft to history
+      await saveHistoryDraft(beat.id, cleanText);
     } catch (err) {
       setError(err instanceof Error ? err.message : "写作失败");
       setMode("idle");
@@ -327,6 +306,8 @@ ${userNotes}`;
       const approved = text.includes("[APPROVED]");
       setEditorReview(cleanText);
       setStreamText("");
+      // Save review to history
+      await saveHistoryReview(currentBeat.id, cleanText, approved);
 
       if (approved) {
         await approveBeat();
@@ -359,6 +340,8 @@ ${userNotes}`;
       const cleanText = text.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
       setDraftContent(cleanText);
       setStreamText("");
+      // Save revised draft to history
+      await saveHistoryDraft(currentBeat.id, cleanText);
 
       // Auto-send back to editor
       setMode("reviewing");
@@ -368,6 +351,8 @@ ${userNotes}`;
       const approved = reviewText.includes("[APPROVED]");
       setEditorReview(reviewClean);
       setStreamText("");
+      // Save review to history
+      await saveHistoryReview(currentBeat.id, reviewClean, approved);
 
       if (approved) {
         await approveBeat();
@@ -383,15 +368,12 @@ ${userNotes}`;
     }
   }
 
-  const [approving, setApproving] = useState(false);
-
   async function approveBeat() {
     if (!currentBeat || !draftContent || approving) return;
     setApproving(true);
     setError("");
 
     try {
-      // 1. Save draft file
       const saveRes = await fetch("/api/drafts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -401,21 +383,19 @@ ${userNotes}`;
         throw new Error(`保存失败 (${saveRes.status})`);
       }
 
-      // 2. Update status immediately so user sees feedback
       updateBeatStatus(currentBeat.id, "done");
       setMode("idle");
       setEditorReview("");
 
-      // 3. Move to next beat
       const idx = beats.findIndex(b => b.id === currentBeat.id);
       const nextBeat = beats[idx + 1];
       if (nextBeat && nextBeat.status === "blank") {
         setCurrentBeatId(nextBeat.id);
         setDraftContent("");
         setIsChapterView(false);
+        setHistoryRounds([]);
       }
 
-      // 4. Generate summary in background (non-blocking)
       const beatId = currentBeat.id;
       fetch("/api/beat-summary", {
         method: "POST",
@@ -428,7 +408,7 @@ ${userNotes}`;
             setBeatSummaries(prev => ({ ...prev, [beatId]: data.summary }));
           }
         }
-      }).catch(() => {}); // summary failure is non-critical
+      }).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "采纳失败");
     } finally {
@@ -449,7 +429,6 @@ ${userNotes}`;
     abortRef.current?.abort();
   }
 
-  // Load existing draft content for a beat (from beat file or chapter file)
   const loadDraftContent = useCallback(async (beatId: string) => {
     try {
       const res = await fetch(`/api/drafts?projectSlug=${encodeURIComponent(slug)}&sectionId=${encodeURIComponent(beatId)}`);
@@ -467,7 +446,7 @@ ${userNotes}`;
     }
   }, [slug]);
 
-  // Group beats by chapter for sidebar display
+  // Group beats by chapter
   const chapters = beats.reduce<Record<string, Beat[]>>((acc, beat) => {
     if (!acc[beat.chapter]) acc[beat.chapter] = [];
     acc[beat.chapter].push(beat);
@@ -481,7 +460,6 @@ ${userNotes}`;
     <div className="flex flex-1 overflow-hidden">
       {/* Left sidebar: progress */}
       <div className="w-96 shrink-0 border-r border-white/10 overflow-y-auto p-4 text-sm">
-        {/* Progress overview */}
         <div className="mb-4 px-1">
           <div className="flex items-center justify-between text-white/60 mb-1.5">
             <span className="font-medium">写作进度</span>
@@ -519,9 +497,12 @@ ${userNotes}`;
                   setMode("idle");
                   setEditorReview("");
                   setIsChapterView(false);
-                  if (beat.status === "done") {
+                  setHistoryRounds([]);
+                  setExpandedRounds(new Set());
+                  if (beat.status === "done" || beat.status === "review" || beat.status === "revising" || beat.status === "writing") {
                     setDraftContent("");
                     loadDraftContent(beat.id);
+                    loadHistory(beat.id);
                   } else {
                     setDraftContent("");
                   }
@@ -580,8 +561,59 @@ ${userNotes}`;
 
             {/* Content area */}
             <div className="flex-1 overflow-y-auto p-4">
-              {/* Empty state — no draft yet */}
-              {!streaming && !draftContent && !editorReview && !error && currentBeat.status !== "done" && (
+
+              {/* Revision history (collapsed rounds) */}
+              {historyRounds.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-white/30 text-xs mb-2 font-medium">修改历史 ({historyRounds.length}轮)</div>
+                  {historyRounds.map(round => {
+                    const isExpanded = expandedRounds.has(round.round);
+                    return (
+                      <div key={round.round} className="mb-2 border border-white/5 rounded overflow-hidden">
+                        <button
+                          onClick={() => toggleRound(round.round)}
+                          className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-white/20">{isExpanded ? "▼" : "▶"}</span>
+                            <span className="text-white/50">第{round.round}轮</span>
+                            <span className="text-white/30">· {round.draft.length}字</span>
+                            {round.review && (
+                              <span className={round.approved ? "text-emerald-400/60" : "text-amber-400/60"}>
+                                {round.approved ? "✓ 通过" : "✎ 有意见"}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-white/15 text-[10px]">
+                            {new Date(round.timestamp).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-3">
+                            <div>
+                              <div className="text-white/30 text-[10px] mb-1">✍ 稿件</div>
+                              <div className="p-3 bg-white/3 rounded text-white/60 whitespace-pre-wrap text-xs leading-relaxed max-h-60 overflow-y-auto">
+                                {round.draft}
+                              </div>
+                            </div>
+                            {round.review && (
+                              <div>
+                                <div className="text-white/30 text-[10px] mb-1">📝 审稿意见</div>
+                                <div className="p-3 bg-sky-950/20 rounded text-white/50 whitespace-pre-wrap text-xs leading-relaxed max-h-60 overflow-y-auto">
+                                  {round.review}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!streaming && !draftContent && !editorReview && !error && currentBeat.status !== "done" && historyRounds.length === 0 && (
                 <div className="flex-1 flex items-center justify-center h-full text-white/20">
                   <div className="text-center">
                     <div className="text-4xl mb-3 opacity-40">✍</div>
