@@ -1454,8 +1454,8 @@ ${docText}
           <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border-light/40 to-transparent" />
         </header>
 
-        {currentPhase === "draft" || currentPhase === "review" ? (
-          <DraftWorkspace slug={slug} activeProvider={activeProvider} />
+        {currentPhase === "draft" ? (
+          <DraftWorkspace slug={slug} activeProvider={activeProvider} onAdvancePhase={() => setPhase("review")} />
         ) : (
           <>
           {/* Messages */}

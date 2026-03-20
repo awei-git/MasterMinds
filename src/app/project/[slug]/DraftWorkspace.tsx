@@ -25,6 +25,7 @@ interface HistoryRound {
 interface DraftWorkspaceProps {
   slug: string;
   activeProvider: string;
+  onAdvancePhase?: () => void;
 }
 
 // Beat status display
@@ -36,7 +37,7 @@ const STATUS_LABEL: Record<string, { icon: string; color: string; text: string }
   done: { icon: "●", color: "text-emerald-400", text: "完成" },
 };
 
-export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceProps) {
+export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }: DraftWorkspaceProps) {
   const [beats, setBeats] = useState<Beat[]>([]);
   const [currentBeatId, setCurrentBeatId] = useState<string | null>(null);
   const [draftContent, setDraftContent] = useState("");
@@ -475,6 +476,14 @@ export default function DraftWorkspace({ slug, activeProvider }: DraftWorkspaceP
             <span>{totalChars.toLocaleString()}字</span>
             <span>{Math.round(beats.length ? (totalDone / beats.length) * 100 : 0)}%</span>
           </div>
+          {beats.length > 0 && totalDone === beats.length && onAdvancePhase && (
+            <button
+              onClick={onAdvancePhase}
+              className="mt-3 w-full px-3 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 rounded text-emerald-300 text-sm font-medium transition-all"
+            >
+              全部写完 → 进入审稿
+            </button>
+          )}
         </div>
 
         {Object.entries(chapters).map(([chapter, chapterBeats]) => {
