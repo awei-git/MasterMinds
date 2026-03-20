@@ -134,8 +134,8 @@ async function completeViaCLI(messages: LLMMessage[], opts: LLMOptions, signal?:
     const timeout = setTimeout(() => {
       killed = true;
       child.kill("SIGKILL");
-      reject(new Error("claude CLI timeout (90s)"));
-    }, 90_000);
+      reject(new Error("claude CLI timeout (300s)"));
+    }, 300_000);
 
     if (signal) {
       const onAbort = () => {
@@ -184,13 +184,13 @@ async function streamViaCLI(
     let lastDataAt = Date.now();
     let killed = false;
     const staleCheck = setInterval(() => {
-      if (Date.now() - lastDataAt > 90_000) {
+      if (Date.now() - lastDataAt > 300_000) {
         clearInterval(staleCheck);
         killed = true;
         child.kill("SIGKILL");
-        reject(new Error("claude CLI timeout — no output for 90s"));
+        reject(new Error("claude CLI timeout — no output for 300s"));
       }
-    }, 10_000);
+    }, 30_000);
 
     if (signal) {
       const onAbort = () => {
