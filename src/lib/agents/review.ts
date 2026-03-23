@@ -489,17 +489,24 @@ export async function reviseFromIssues(
 
     send({ type: "chapter_revise_start", chapter: ch.name, index: i + 1, total: chapters.length });
 
+    // BACKUP original before any modification
+    const backupDir = join(DATA_DIR, projectSlug, "draft", ".backup");
+    mkdirSync(backupDir, { recursive: true });
+    writeFileSync(join(backupDir, `${ch.name}.md`), ch.content, "utf-8");
+
     let revised = "";
     await stream(routed, [
       {
         role: "user",
         content: `修改以下章节。只改审稿意见指出的问题，其他不要动。
 
-⚠️ 改稿铁律：
+⚠️ 改稿铁律（违反任何一条则修改无效）：
 1. 只改审稿意见明确指出的问题，不要动其他地方
-2. 修改方向是写得更好，不是写得更短更安全
-3. 禁止把长句拆成碎片短句
-4. 直接输出修改后的完整章节正文，不要加任何说明
+2. 有问题的地方要改好，不能删掉了事——删除不是修改
+3. 修改方向是写得更好，不是写得更短更安全
+4. 禁止把长句拆成碎片短句，禁止删掉具体意象换成概括
+5. 修改后的章节不应比原文短超过10%
+6. 直接输出修改后的完整章节正文，不要加任何说明
 
 ## 本章审稿意见
 
@@ -522,14 +529,25 @@ ${ch.content}`,
       },
     });
 
-    // Save revised chapter back to disk
-    if (revised.length > ch.content.length * 0.3) {
+    // Iron rule: reject if more than 10% shorter than original
+    const shrinkRatio = revised.length / ch.content.length;
+    if (revised.length > 0 && shrinkRatio >= 0.9) {
       writeFileSync(ch.path, revised, "utf-8");
       revisedParts.push(revised);
       send({ type: "chapter_revise_done", chapter: ch.name, oldLen: ch.content.length, newLen: revised.length });
+    } else if (revised.length > 0 && shrinkRatio < 0.9) {
+      // Rejected — too much deleted. Restore from backup.
+      revisedParts.push(ch.content);
+      send({
+        type: "chapter_revise_rejected",
+        chapter: ch.name,
+        reason: `修改被拒绝：缩减了${Math.round((1 - shrinkRatio) * 100)}%（超过10%上限）。问题要改不能删。保留原文。`,
+        oldLen: ch.content.length,
+        newLen: revised.length,
+      });
     } else {
       revisedParts.push(ch.content);
-      send({ type: "chapter_revise_skip", chapter: ch.name, reason: "修改结果过短，保留原文" });
+      send({ type: "chapter_revise_skip", chapter: ch.name, reason: "修改结果为空，保留原文" });
     }
   }
 
