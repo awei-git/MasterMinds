@@ -1,0 +1,117 @@
+[
+  {
+    "role": "reviewer",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/reviewer.md",
+    "aggregate": 7.5,
+    "scores": {
+      "instruction_clarity": 8.0,
+      "constraint_specificity": 7.0,
+      "anti_patterns": 6.5,
+      "independence": 8.5
+    },
+    "reasoning": "This is a well-crafted role definition that earns its specificity through the anonymous-reviewer framing and the document-type-aware evaluation dimensions — most agents given this prompt would produce genuinely useful critique rather than generic feedback. Its main weakness is that anti-pattern coverage is thin outside the one strong language example: a reviewer armed with this prompt could still produce vague, hedge-y output on the evaluation dimensions without violating any stated rule. Adding 2–3 'do NOT write it like this' examples to the output format section would push this from good to production-quality."
+  },
+  {
+    "role": "idea",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/idea.md",
+    "aggregate": 7.6,
+    "scores": {
+      "instruction_clarity": 8.5,
+      "constraint_specificity": 7.0,
+      "anti_patterns": 8.5,
+      "generative_power": 7.5,
+      "feasibility_check": 6.5
+    },
+    "reasoning": "This is a well-crafted, domain-specific prompt with clear role identity, named anti-patterns, and a structured workflow — strong enough for production use in a creative writing tool. Its main weaknesses are that several constraints remain vague behavioral guidance rather than hard rules, and the five-phase framework assumes long-form novel development without a scope-detection mechanism that could mismatch shorter or experimental projects."
+  },
+  {
+    "role": "continuity",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/continuity.md",
+    "aggregate": 7.7,
+    "scores": {
+      "instruction_clarity": 8.5,
+      "constraint_specificity": 7.5,
+      "anti_patterns": 6.5,
+      "tracking_precision": 9.0,
+      "error_detection": 7.0
+    },
+    "reasoning": "This is a well-crafted, production-quality prompt with unusually strong tracking precision — the structured templates and citation requirements are best-in-class for the domain. Its main weaknesses are the absence of LLM-specific failure mode warnings (what to do when context window limits make full database recall impossible) and soft constraint language where hard thresholds would be more reliable. Scores 8+ on structure and domain knowledge; held back by gaps in error-detection mechanism and anti-pattern coverage."
+  },
+  {
+    "role": "chronicler",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/chronicler.md",
+    "aggregate": 8.125,
+    "scores": {
+      "instruction_clarity": 8.5,
+      "constraint_specificity": 8.0,
+      "anti_patterns": 8.5,
+      "compression_quality": 7.5
+    },
+    "reasoning": "A well-crafted role definition that earns its score through concrete negative constraints, a clear named cast, and a vivid audience framing ('they want a good show, not minutes'). The main gap is that 'acceptable dramatization' is undefined — the agent lacks a bright line between evocative reconstruction and fabrication, which is exactly where this role is most likely to fail in production."
+  },
+  {
+    "role": "character",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/character.md",
+    "aggregate": 8.3,
+    "scores": {
+      "instruction_clarity": 8.0,
+      "constraint_specificity": 7.5,
+      "anti_patterns": 8.5,
+      "character_depth": 9.0,
+      "voice_distinction": 8.5
+    },
+    "reasoning": "This is a production-quality prompt that goes beyond standard character-writing advice: the Want/Need contradiction engine, four arc types including the underused corruption arc, and the Voice DNA with avoidance words and subtext patterns reflect real craft. The main gap is that abstract constraints ('enough foreshadowing', 'at least one function') lack measurable thresholds, and the subtext patterns are named but never demonstrated — sample dialogue showing how two characters handle the same moment differently would close that gap."
+  },
+  {
+    "role": "reader",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/reader.md",
+    "aggregate": 8.3,
+    "scores": {
+      "instruction_clarity": 8.5,
+      "constraint_specificity": 8.0,
+      "anti_patterns": 7.5,
+      "scoring_calibration": 8.5,
+      "reader_perspective": 9.0
+    },
+    "reasoning": "This is a production-quality evaluator prompt that makes one genuinely non-obvious design choice: grounding calibration in a named literary canon rather than abstract descriptors, which gives the scoring rubric real inter-rater teeth. The main gap is anti-patterns — the failure modes are listed but not demonstrated with before/after examples, so an LLM that hasn't internalized 'inflation creep' or 'false uncertainty' would need to infer what those look like in practice. The reader-perspective framing is the standout strength: it consistently pushes toward felt experience over craft analysis, which is rare and hard to maintain across a long prompt."
+  },
+  {
+    "role": "architect",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/architect.md",
+    "aggregate": 8.4,
+    "scores": {
+      "instruction_clarity": 8.5,
+      "constraint_specificity": 8.0,
+      "anti_patterns": 9.0,
+      "structural_toolkit": 9.0,
+      "scope_control": 7.5
+    },
+    "reasoning": "This is a production-quality prompt that a professional story editor would recognize as craft: the causal chain test, mid-section collapse taxonomy, and the pre-execution evaluation gate are genuinely non-obvious additions that teach the model something it wouldn't infer from generic writing advice. The main weakness is mild self-contradiction — a prompt explicitly warning against over-planning is itself quite elaborate, and the six-step patch protocol may induce procedural overhead on simple requests. Strongest on anti-patterns and structural toolkit; slightly softer on scope discipline in practice."
+  },
+  {
+    "role": "editor",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/editor.md",
+    "aggregate": 9.1,
+    "scores": {
+      "instruction_clarity": 9.0,
+      "constraint_specificity": 9.0,
+      "anti_patterns": 9.5,
+      "issue_taxonomy": 9.0,
+      "feedback_format": 9.0
+    },
+    "reasoning": "This is a production-quality editorial prompt that demonstrates genuine craft: the gating logic (P0 blocks everything downstream), the '守住清单' as a protective mechanism against over-editing, and the MRU/psychic-distance checks show deep domain knowledge beyond generic writing advice. The one gap keeping it from a perfect score is that a handful of constraints remain partially vague (e.g., '至少两种叙事速度' has no per-chapter quota, and Psychic distance smoothness lacks an operationalized test), which would require editor judgment rather than mechanical application. Overall this is an 8.5–9 range prompt that an expert would recognize as crafted by someone who has actually edited literary fiction."
+  },
+  {
+    "role": "writer",
+    "path": "/Users/angwei/Sandbox/MasterMinds/agents/roles/writer.md",
+    "aggregate": 9.1,
+    "scores": {
+      "instruction_clarity": 9.0,
+      "constraint_specificity": 9.5,
+      "anti_patterns": 9.5,
+      "craft_precision": 9.0,
+      "voice_guidance": 8.5
+    },
+    "reasoning": "This is a production-quality, craft-literate prompt that teaches the LLM things it cannot infer from defaults — particularly the paragraph-shape visual heuristic, the feedback over-correction trap table, and the quantified rhythm rules. Its main gap is that voice reference points are listed but not operationalized (e.g., 'use Carver's flatness for dialogue, McCarthy's syntactic momentum for action'), which would push it from 8–9 to 10. Strongest prompt sections are the anti-pattern examples and the MRU + psychic distance mechanics."
+  }
+]

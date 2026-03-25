@@ -1,0 +1,222 @@
+[
+  {
+    "name": "compression",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptionally practical guide to prose compression that avoids platitudes in favor of sur"
+  },
+  {
+    "name": "defamiliarization",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptional pedagogical guide that effectively translates an abstract literary theory int"
+  },
+  {
+    "name": "dialogue-subtext",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptionally strong guide that balances theoretical understanding with concrete, replica"
+  },
+  {
+    "name": "earned-ending",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptional piece of craft advice that bridges the gap between abstract literary theory a"
+  },
+  {
+    "name": "free-indirect-discourse",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptional guide that demystifies a nuanced literary technique into a practical, repeata"
+  },
+  {
+    "name": "image-systems",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptional guide that elevates a common literary concept into a rigorous, mechanical pro"
+  },
+  {
+    "name": "incluing",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptionally high-quality guide that transforms a daunting narrative challenge into a se"
+  },
+  {
+    "name": "objective-correlative",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is a high-quality, practical guide that elevates a classic literary concept into a tactical wri"
+  },
+  {
+    "name": "scene-level-tension",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptionally high-quality technical brief for writers. Its primary strength is the shift"
+  },
+  {
+    "name": "sentence-rhythm",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is an exceptionally well-structured guide that elevates common writing advice into a practical,"
+  },
+  {
+    "name": "voice-consistency",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 8.75,
+    "reasoning": "This is a high-quality guide that shifts the focus of narrative voice from superficial style to deep"
+  },
+  {
+    "name": "conceptual-metaphor-as-structure",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 9.0
+    },
+    "agg": 9.0,
+    "reasoning": "This is an exceptional piece of craft advice that elevates SF writing from 'cool premise' to 'struct"
+  },
+  {
+    "name": "iceberg-principle",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 9.0,
+    "reasoning": "This is an exceptionally high-quality piece of writing advice that balances abstract philosophy with"
+  },
+  {
+    "name": "pov-camera-discipline",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 9.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 9.0,
+    "reasoning": "This is a high-utility, professional-grade guide that excels at turning an abstract craft concept in"
+  },
+  {
+    "name": "telling-detail",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 10.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 9.0,
+    "reasoning": "This is an exceptionally practical guide that transforms the vague 'show, don't tell' advice into a "
+  },
+  {
+    "name": "character-desire-contradiction",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 10.0,
+      "information_density": 9.0,
+      "distinctiveness": 8.0
+    },
+    "agg": 9.25,
+    "reasoning": "This is an exceptionally high-quality synthesis of advanced character design principles. Its primary"
+  },
+  {
+    "name": "strategic-withholding",
+    "scores": {
+      "trigger_clarity": 9.0,
+      "actionability": 10.0,
+      "information_density": 9.0,
+      "distinctiveness": 9.0
+    },
+    "agg": 9.25,
+    "reasoning": "This is an exceptionally high-quality craft guide that transforms an abstract concept into a technic"
+  },
+  {
+    "name": "novum-extrapolation-chain",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 10.0,
+      "information_density": 9.0,
+      "distinctiveness": 9.0
+    },
+    "agg": 9.5,
+    "reasoning": "This is an exceptionally high-quality tool for speculative fiction writers, transforming abstract wo"
+  },
+  {
+    "name": "surgical-revision",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 10.0,
+      "information_density": 9.0,
+      "distinctiveness": 9.0
+    },
+    "agg": 9.5,
+    "reasoning": "This is an exceptional piece of professional writing advice that treats editing as a formal, risk-ma"
+  },
+  {
+    "name": "psychic-distance",
+    "scores": {
+      "trigger_clarity": 10.0,
+      "actionability": 10.0,
+      "information_density": 10.0,
+      "distinctiveness": 9.0
+    },
+    "agg": 9.75,
+    "reasoning": "This is an exceptional piece of instructional writing that turns an abstract literary concept into a"
+  }
+]
