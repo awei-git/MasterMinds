@@ -4,10 +4,6 @@ import {
   saveReviewRound,
   loadFullDraft,
   reviseFromIssues,
-  reviewWithAgent,
-  aggregateIssues,
-  type ReviewRound,
-  type AgentReview,
   type SendFn,
 } from "@/lib/agents/review";
 import type { ModelProvider } from "@/lib/llm";
@@ -122,65 +118,13 @@ export async function POST(req: NextRequest) {
           roundState.reviews,
         );
 
-        // TODO: Save revised draft back to files
-        // For now, use the revised text for re-review
         send({ type: "revise_complete" });
 
-        // Step 2: New review round
-        const nextRound = currentRound + 1;
-        send({ type: "review_start", round: nextRound });
-
-        const reviewers = ["editor", "character", "reader", "continuity"];
-        const results = await Promise.allSettled(
-          reviewers.map((role) =>
-            reviewWithAgent(role, revisedDraft, projectSlug, provider as ModelProvider, send)
-          )
-        );
-
-        const reviews: Record<string, AgentReview> = {};
-        for (let i = 0; i < reviewers.length; i++) {
-          const result = results[i];
-          if (result.status === "fulfilled") {
-            reviews[reviewers[i]] = result.value;
-          } else {
-            reviews[reviewers[i]] = {
-              agent: reviewers[i],
-              raw: `Error: ${result.reason}`,
-              issues: [],
-            };
-          }
-        }
-
-        const aggregated = aggregateIssues(reviews);
-        const p0Count = aggregated.filter((i) => i.severity === "P0").length;
-        const p1Count = aggregated.filter((i) => i.severity === "P1").length;
-        const p2Count = aggregated.filter((i) => i.severity === "P2").length;
-
-        send({
-          type: "round_summary",
-          round: nextRound,
-          p0: p0Count,
-          p1: p1Count,
-          p2: p2Count,
-          total: aggregated.length,
-          readerScore: reviews.reader?.score,
-          issues: aggregated,
-        });
-
-        const newRoundState: ReviewRound = {
-          round: nextRound,
-          timestamp: new Date().toISOString(),
-          reviews,
-          aggregated,
-          status: "awaiting_input",
-        };
-        saveReviewRound(projectSlug, newRoundState);
-
+        // Pause after revision — user reviews the changes, then decides
+        // whether to trigger another review round via POST /api/review
         send({
           type: "awaiting_input",
-          message: p0Count > 0
-            ? `第${nextRound}轮审稿完成。还有 ${p0Count} 个P0问题。`
-            : `第${nextRound}轮审稿通过！无P0问题。`,
+          message: "修改完成。请检查各章修改内容，然后决定是否需要新一轮审稿。",
         });
 
         send({ type: "done" });

@@ -451,12 +451,8 @@ export function buildContext(req: ContextRequest): {
       let phasePrompt = `# 当前阶段：${phaseInfo.label}\n\n`;
       phasePrompt += `你正在「${phaseInfo.label}」阶段工作。\n\n`;
       if (phaseInfo.next) {
-        phasePrompt += `## 阶段推进规则\n`;
-        phasePrompt += `当你判断当前阶段的核心工作已经完成（关键要素已锁定、没有重大遗漏），你应该：\n`;
-        phasePrompt += `1. 做一个简短总结，列出当前阶段锁定的内容\n`;
-        phasePrompt += `2. 在回复的**最后一行**，单独写：\`[PHASE_COMPLETE]\`\n`;
-        phasePrompt += `3. 建议创作者进入下一阶段「${phaseInfo.nextLabel}」，由${phaseInfo.nextAgent}接手\n\n`;
-        phasePrompt += `**重要**：不要过早推进。确保当前阶段足够扎实再建议进入下一步。也不要每次都提——只在真正完成时才说。\n`;
+        phasePrompt += `当你觉得当前阶段已经足够扎实，可以提醒创作者考虑进入「${phaseInfo.nextLabel}」阶段。\n`;
+        phasePrompt += `但**不要**自动推进——阶段切换完全由创作者决定。不要过早建议推进。\n`;
       } else {
         phasePrompt += `这是最终阶段。完成后输出最终成果。\n`;
       }
@@ -514,5 +510,80 @@ export function buildContext(req: ContextRequest): {
   return {
     system: systemParts.join("\n\n---\n\n"),
     messages: [{ role: "user", content: userMessage }],
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// Writing-phase context: Spec + Ledger + style anchor + recent draft tail
+// ---------------------------------------------------------------------------
+
+export interface WritingContextRequest {
+  projectSlug: string;
+  role: RoleName;
+  beatId: string;       // e.g. "阳三.1"
+  beatInstruction: string; // what this beat should contain (from beat sheet)
+  userNote?: string;     // optional user instruction ("对话太假", "节奏太慢")
+  skillGroup?: string;
+}
+
+export function buildWritingContext(req: WritingContextRequest): {
+  system: string;
+  messages: LLMMessage[];
+} {
+  const role = loadRole(req.role);
+
+  const systemParts: string[] = [role.systemPrompt];
+
+  // 1. Spec document (single authoritative source)
+  const specFile = readIfExists(join(projectDir(req.projectSlug), "spec.md"));
+  if (specFile) {
+    systemParts.push("# 写作规格书（硬约束）\n\n" + specFile);
+
+    // Extract style anchor section if present
+    const anchorMatch = specFile.match(/## 风格锚\s*\n([\s\S]*?)(?=\n## |\n# |$)/);
+    if (anchorMatch && anchorMatch[1].trim()) {
+      systemParts.push(
+        "# 风格锚（你的文字必须接近这个质感）\n\n" + anchorMatch[1].trim()
+      );
+    }
+  }
+
+  // 2. Continuity Ledger
+  const { loadLedger, formatLedgerForPrompt } = require("@/lib/ledger");
+  const ledger = loadLedger(req.projectSlug);
+  const ledgerText = formatLedgerForPrompt(ledger);
+  if (ledgerText) systemParts.push(ledgerText);
+
+  // 3. Skills (role-appropriate)
+  const skills = loadSkills(req.role, req.skillGroup);
+  if (skills) systemParts.push(skills);
+
+  // 4. Anti-AI checklist for writer
+  if (req.role === "writer") {
+    const antiAi = readIfExists(join(process.cwd(), "agents", "checklists", "anti-ai.md"));
+    if (antiAi) systemParts.push(antiAi);
+  }
+
+  // Build user message with beat instruction + recent draft tail
+  const messageParts: string[] = [];
+
+  messageParts.push(`请写 beat: **${req.beatId}**\n\n## 节拍指令\n${req.beatInstruction}`);
+
+  if (req.userNote) {
+    messageParts.push(`## 创作者指令\n${req.userNote}`);
+  }
+
+  // Recent draft tail for voice continuity
+  const recentDraft = loadRecentDraft(req.projectSlug, 1500);
+  if (recentDraft) {
+    messageParts.push(recentDraft);
+  }
+
+  messageParts.push("直接输出正文。不要加标题、自检报告、字数统计或任何说明文字。");
+
+  return {
+    system: systemParts.join("\n\n---\n\n"),
+    messages: [{ role: "user", content: messageParts.join("\n\n---\n\n") }],
   };
 }

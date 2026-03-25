@@ -170,12 +170,6 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <Link
-                href="/autowrite"
-                className="px-4 py-3 bg-surface/80 hover:bg-surface border border-border/60 hover:border-border-light text-sm text-foreground/70 rounded-xl transition-all"
-              >
-                ⚡ 一键成稿
-              </Link>
               <button
                 onClick={() => { setShowNew(!showNew); setCreateError(""); }}
                 className="px-6 py-3 bg-accent/90 hover:bg-accent text-white rounded-xl text-sm font-medium transition-all hover:shadow-[0_0_24px_rgba(94,138,133,0.3)]"

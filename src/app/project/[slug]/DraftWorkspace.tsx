@@ -304,18 +304,14 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
       const prompt = buildEditorPrompt(currentBeat, draftContent);
       const text = await streamAgent("editor", prompt, { cleanContext: true, skillGroup: "editing" });
       const cleanText = text.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-      const approved = text.includes("[APPROVED]");
       setEditorReview(cleanText);
       setStreamText("");
       // Save review to history
-      await saveHistoryReview(currentBeat.id, cleanText, approved);
+      await saveHistoryReview(currentBeat.id, cleanText, text.includes("[APPROVED]"));
 
-      if (approved) {
-        await approveBeat();
-      } else {
-        setMode("idle");
-        updateBeatStatus(currentBeat.id, "review");
-      }
+      // Always show review to user — user decides whether to approve, revise, or ignore
+      setMode("idle");
+      updateBeatStatus(currentBeat.id, "review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "审稿失败");
       setMode("idle");
@@ -326,10 +322,6 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
 
   async function revise(userNotes?: string) {
     if (streaming || !currentBeat || !draftContent) return;
-    if (revisionRound >= 3) {
-      setError("已达到最大修改轮数。请选择接受当前版本或手动编辑。");
-      return;
-    }
     setMode("revising");
     setStreaming(true);
     setError("");
@@ -341,26 +333,11 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
       const cleanText = text.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
       setDraftContent(cleanText);
       setStreamText("");
+      setEditorReview(""); // Clear old review — user decides next step
+      setMode("idle");
+      updateBeatStatus(currentBeat.id, "writing");
       // Save revised draft to history
       await saveHistoryDraft(currentBeat.id, cleanText);
-
-      // Auto-send back to editor
-      setMode("reviewing");
-      const reviewPrompt = buildEditorPrompt(currentBeat, cleanText);
-      const reviewText = await streamAgent("editor", reviewPrompt, { cleanContext: true, skillGroup: "editing" });
-      const reviewClean = reviewText.replace(/\n?\[(PHASE_COMPLETE|APPROVED)\]\n?/g, "").trim();
-      const approved = reviewText.includes("[APPROVED]");
-      setEditorReview(reviewClean);
-      setStreamText("");
-      // Save review to history
-      await saveHistoryReview(currentBeat.id, reviewClean, approved);
-
-      if (approved) {
-        await approveBeat();
-      } else {
-        setMode("idle");
-        updateBeatStatus(currentBeat.id, "revising");
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "修改失败");
       setMode("idle");
@@ -398,6 +375,13 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
       }
 
       const beatId = currentBeat.id;
+      // Update continuity ledger (fire-and-forget)
+      fetch("/api/ledger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectSlug: slug, beatId, content: draftContent, provider: "gemini" }),
+      }).catch(() => {});
+      // Generate beat summary for next-beat context
       fetch("/api/beat-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
