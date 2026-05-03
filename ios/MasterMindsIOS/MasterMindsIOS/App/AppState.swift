@@ -220,6 +220,6 @@ final class AppState: ObservableObject {
     private func updateCloudState(didSync: Bool) {
         cloudSyncState = didSync
             ? .available
-            : .unavailable("CloudKit container 未绑定；已保存到本地缓存")
+            : .unavailable(cloudStore.syncIssueDescription())
     }
 }

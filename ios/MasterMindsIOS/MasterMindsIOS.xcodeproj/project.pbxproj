@@ -212,6 +212,11 @@
 				TargetAttributes = {
 					01C3BEA279D87C4DDD47A7CF = {
 						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+						};
 					};
 					DB017943290557232A3F074F = {
 						ProvisioningStyle = Automatic;

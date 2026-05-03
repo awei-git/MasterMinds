@@ -12,7 +12,7 @@ Native SwiftUI client for the 神仙会 writers' room server.
 - Roundtable execution through `/api/roundtable` with SSE event rendering
 - Independent writing tasks through `/api/writing-tasks`
 - Expansion chapter list, AI chapter drafting/revision, manual editing, and saving through `/api/beats` and `/api/writing-tasks`
-- Local-first cache with CloudKit-backed slow sync for projects, phases, chapter lists, and chapter drafts when the server is unreachable
+- Local-first cache with iCloud Key-Value Store slow sync for projects, phases, chapter lists, and chapter drafts when the server is unreachable; full CloudKit sync requires binding an Apple Developer CloudKit container
 
 ## Generate The Xcode Project
 

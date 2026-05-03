@@ -6,5 +6,7 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>5PX85RX99G.com.angwei.shenxianhui</string>
 </dict>
 </plist>

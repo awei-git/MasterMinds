@@ -17,9 +17,15 @@ struct WritingCacheSnapshot: Codable {
 
 @MainActor
 final class CloudWritingStore {
-    private var container: CKContainer { CKContainer.default() }
+    static let containerIdentifier = "iCloud.com.angwei.shenxianhui"
+
+    private static let keyValueSnapshotKey = "com.angwei.shenxianhui.writing-cache.v1"
+    private static let keyValueSnapshotLimit = 900_000
+
+    private var container: CKContainer { CKContainer(identifier: Self.containerIdentifier) }
     private var database: CKDatabase { container.privateCloudDatabase }
     private let cacheURL: URL
+    private var lastSyncError: String?
 
     init(fileManager: FileManager = .default) {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -30,35 +36,23 @@ final class CloudWritingStore {
     }
 
     func accountStatusDescription() async -> String? {
-        guard isCloudKitEntitled else {
-            return "当前构建未启用 iCloud entitlement"
+        guard isICloudKeyValueStoreAvailable else {
+            return "未登录 iCloud 或 iCloud Drive 不可用"
         }
-        do {
-            let status = try await container.accountStatus()
-            switch status {
-            case .available:
-                return nil
-            case .noAccount:
-                return "未登录 iCloud"
-            case .restricted:
-                return "iCloud 受限"
-            case .couldNotDetermine:
-                return "无法确认 iCloud 状态"
-            case .temporarilyUnavailable:
-                return "iCloud 暂不可用"
-            @unknown default:
-                return "未知 iCloud 状态"
-            }
-        } catch {
-            return error.localizedDescription
-        }
+        return nil
     }
 
     func projects() async -> [Project] {
         var snapshot = loadSnapshot()
-        if isCloudKitEntitled, let cloudProjects = try? await fetchCloudProjects(), !cloudProjects.isEmpty {
-            for project in cloudProjects {
+        if let cloudSnapshot = loadKeyValueSnapshot() {
+            for project in cloudSnapshot.projects.values {
                 snapshot.projects[project.slug] = project
+            }
+            for (slug, chapters) in cloudSnapshot.chapters {
+                snapshot.chapters[slug] = chapters
+            }
+            for (key, draft) in cloudSnapshot.chapterDrafts {
+                snapshot.chapterDrafts[key] = draft
             }
             saveSnapshot(snapshot)
         }
@@ -74,16 +68,7 @@ final class CloudWritingStore {
         saveSnapshot(snapshot)
 
         guard syncToCloud else { return true }
-        guard isCloudKitEntitled else { return false }
-        var didSync = true
-        for project in projects {
-            do {
-                try await saveProjectRecord(project)
-            } catch {
-                didSync = false
-            }
-        }
-        return didSync
+        return saveKeyValueSnapshot(snapshot)
     }
 
     func createProject(title: String, type: String) async -> Project {
@@ -118,16 +103,21 @@ final class CloudWritingStore {
         )
         snapshot.projects[slug] = project
         saveSnapshot(snapshot)
-        if isCloudKitEntitled {
-            try? await saveProjectRecord(project)
+        if isICloudKeyValueStoreAvailable {
+            _ = saveKeyValueSnapshot(snapshot)
         }
         return project
     }
 
     func chapters(projectSlug: String) async -> [ChapterUnit] {
         var snapshot = loadSnapshot()
-        if isCloudKitEntitled, let cloudChapters = try? await fetchCloudChapters(projectSlug: projectSlug), !cloudChapters.isEmpty {
-            snapshot.chapters[projectSlug] = cloudChapters
+        if let cloudSnapshot = loadKeyValueSnapshot() {
+            for (slug, chapters) in cloudSnapshot.chapters {
+                snapshot.chapters[slug] = chapters
+            }
+            for (key, draft) in cloudSnapshot.chapterDrafts {
+                snapshot.chapterDrafts[key] = draft
+            }
             saveSnapshot(snapshot)
         }
         return snapshot.chapters[projectSlug] ?? []
@@ -140,22 +130,15 @@ final class CloudWritingStore {
         saveSnapshot(snapshot)
 
         guard syncToCloud else { return true }
-        guard isCloudKitEntitled else { return false }
-        var didSync = true
-        for chapter in chapters {
-            do {
-                try await saveChapterRecord(chapter, projectSlug: projectSlug)
-            } catch {
-                didSync = false
-            }
-        }
-        return didSync
+        return saveKeyValueSnapshot(snapshot)
     }
 
     func chapterDraft(projectSlug: String, chapterId: String) async -> ChapterDraftCache? {
         var snapshot = loadSnapshot()
-        if isCloudKitEntitled, let cloudDraft = try? await fetchCloudDraft(projectSlug: projectSlug, chapterId: chapterId) {
-            snapshot.chapterDrafts[draftKey(projectSlug: projectSlug, chapterId: chapterId)] = cloudDraft
+        if let cloudSnapshot = loadKeyValueSnapshot() {
+            for (key, draft) in cloudSnapshot.chapterDrafts {
+                snapshot.chapterDrafts[key] = draft
+            }
             saveSnapshot(snapshot)
         }
         return snapshot.chapterDrafts[draftKey(projectSlug: projectSlug, chapterId: chapterId)]
@@ -173,18 +156,59 @@ final class CloudWritingStore {
         )
         snapshot.chapterDrafts[key] = draft
         saveSnapshot(snapshot)
-        if isCloudKitEntitled {
-            try? await saveDraftRecord(draft)
+        if isICloudKeyValueStoreAvailable {
+            _ = saveKeyValueSnapshot(snapshot)
         }
         return draft
     }
 
-    private var isCloudKitEntitled: Bool {
+    func syncIssueDescription() -> String {
+        if let lastSyncError, !lastSyncError.isEmpty {
+            return "iCloud 未同步：\(lastSyncError)"
+        }
+        return "iCloud 未同步；已保存到本地缓存"
+    }
+
+    private var isICloudKeyValueStoreAvailable: Bool {
         #if targetEnvironment(simulator)
         return false
         #else
-        return true
+        return FileManager.default.ubiquityIdentityToken != nil
         #endif
+    }
+
+    private func loadKeyValueSnapshot() -> WritingCacheSnapshot? {
+        guard isICloudKeyValueStoreAvailable else { return nil }
+        let store = NSUbiquitousKeyValueStore.default
+        store.synchronize()
+        guard let data = store.data(forKey: Self.keyValueSnapshotKey) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(WritingCacheSnapshot.self, from: data)
+    }
+
+    private func saveKeyValueSnapshot(_ snapshot: WritingCacheSnapshot) -> Bool {
+        guard isICloudKeyValueStoreAvailable else {
+            lastSyncError = "未登录 iCloud 或 iCloud Drive 不可用"
+            return false
+        }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(snapshot) else {
+            lastSyncError = "本地写作快照编码失败"
+            return false
+        }
+        guard data.count <= Self.keyValueSnapshotLimit else {
+            lastSyncError = "iCloud Key-Value Store 快照超过 \(Self.keyValueSnapshotLimit / 1000)KB；需要绑定 CloudKit container 后才能同步更大的稿件"
+            return false
+        }
+
+        let store = NSUbiquitousKeyValueStore.default
+        store.set(data, forKey: Self.keyValueSnapshotKey)
+        let didSync = store.synchronize()
+        lastSyncError = didSync ? nil : "iCloud 暂时没有接受同步请求"
+        return didSync
     }
 
     private func loadSnapshot() -> WritingCacheSnapshot {

@@ -34,7 +34,7 @@ struct SettingsView: View {
                         Text(cloudStatus)
                             .foregroundStyle(.secondary)
                     }
-                    Text("项目、阶段、章节结构和章节草稿会写入当前 Apple ID 的私有 iCloud 数据库。同步不是实时协作；离线编辑后会在网络恢复时慢同步。")
+                    Text("项目、阶段、章节结构和章节草稿会写入当前 Apple ID 的 iCloud Key-Value Store。同步不是实时协作；离线编辑后会在网络恢复时慢同步。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button("检查 iCloud") {
