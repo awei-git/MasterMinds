@@ -8,7 +8,7 @@ struct PhaseFlowView: View {
 
     var body: some View {
         List {
-            Section("工作流") {
+            Section {
                 ForEach(workflow?.phases ?? fallbackPhases) { phase in
                     PhaseRow(
                         phase: phase,
@@ -18,10 +18,12 @@ struct PhaseFlowView: View {
                         onSummary: { selectedSummaryPhase = SummaryPhase(key: phase.key) }
                     )
                 }
+            } header: {
+                SectionHeaderText(text: "Workflow")
             }
 
             if let workflow {
-                Section("协议") {
+                Section {
                     NavigationLink("圆桌发言规则") {
                         DocumentView(title: "圆桌发言规则", content: workflow.roundtableProtocol)
                     }
@@ -31,9 +33,14 @@ struct PhaseFlowView: View {
                     NavigationLink("逐章扩写协议") {
                         DocumentView(title: "逐章扩写协议", content: workflow.expansionProtocol)
                     }
+                } header: {
+                    SectionHeaderText(text: "Protocols")
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.page)
         .sheet(item: $selectedSummaryPhase) { phase in
             PhaseSummaryView(projectSlug: project.slug, phase: phase.key)
         }
@@ -70,9 +77,10 @@ private struct PhaseRow: View {
             HStack {
                 Image(systemName: isCurrent ? "largecircle.fill.circle" : isPast ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(statusColor)
+                    .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(phase.label)
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                     Text(phase.goal)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -80,7 +88,7 @@ private struct PhaseRow: View {
                 Spacer()
             }
             HStack {
-                Button("切到此阶段", action: onSelect)
+                Button("切换阶段", action: onSelect)
                     .buttonStyle(.bordered)
                     .disabled(isCurrent)
                 Button("查看纪要", action: onSummary)

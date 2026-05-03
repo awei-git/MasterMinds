@@ -17,12 +17,14 @@ struct ProjectDetailView: View {
 
             Picker("视图", selection: $selectedTab) {
                 Text("圆桌").tag("roundtable")
-                Text("任务").tag("tasks")
+                Text("文档").tag("tasks")
                 Text("章节").tag("chapters")
-                Text("阶段").tag("phases")
+                Text("流程").tag("phases")
             }
             .pickerStyle(.segmented)
-            .padding([.horizontal, .top])
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .background(AppTheme.surface)
 
             TabContent(
                 selectedTab: selectedTab,
@@ -33,6 +35,7 @@ struct ProjectDetailView: View {
         }
         .navigationTitle(project.title)
         .navigationBarTitleDisplayMode(.inline)
+        .background(AppTheme.page)
         .task {
             await loadWorkflow()
         }
@@ -64,25 +67,45 @@ private struct ProjectHeader: View {
     let project: Project
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(project.title)
-                        .font(.title2.weight(.semibold))
-                    Text(project.type == "screenplay" ? "剧本" : "小说")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(project.title)
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(1)
                 Spacer()
-                Text(project.phaseLabel)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.tint.opacity(0.12), in: Capsule())
+                StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
+            }
+
+            HStack(spacing: 18) {
+                MetaItem(label: "类型", value: project.type == "screenplay" ? "剧本" : "小说")
+                MetaItem(label: "状态", value: project.status)
+                MetaItem(label: "更新", value: project.updatedAt.formatted(date: .abbreviated, time: .omitted))
             }
         }
-        .padding()
-        .background(.thinMaterial)
+        .padding(.horizontal)
+        .padding(.vertical, 16)
+        .background(AppTheme.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.line)
+                .frame(height: 1)
+        }
+    }
+}
+
+private struct MetaItem: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.primary)
+        }
     }
 }
 

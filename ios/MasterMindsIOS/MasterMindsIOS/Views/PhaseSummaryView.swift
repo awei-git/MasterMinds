@@ -16,6 +16,7 @@ struct PhaseSummaryView: View {
                 } else if let content, !content.isEmpty {
                     ScrollView {
                         Text(content)
+                            .font(.body)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                     }
@@ -23,6 +24,7 @@ struct PhaseSummaryView: View {
                     ContentUnavailableView("没有纪要", systemImage: "doc.text", description: Text("这个阶段还没有保存纪要。"))
                 }
             }
+            .background(AppTheme.page)
             .navigationTitle(Workflow.phaseLabel(phase))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

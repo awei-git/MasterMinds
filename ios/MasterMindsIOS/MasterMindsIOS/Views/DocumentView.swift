@@ -11,6 +11,7 @@ struct DocumentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
         }
+        .background(AppTheme.page)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
     }

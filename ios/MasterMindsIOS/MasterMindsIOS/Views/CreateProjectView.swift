@@ -21,6 +21,8 @@ struct CreateProjectView: View {
                     .pickerStyle(.segmented)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(AppTheme.page)
             .navigationTitle("新建项目")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

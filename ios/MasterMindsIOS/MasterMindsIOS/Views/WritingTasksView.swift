@@ -11,9 +11,12 @@ struct WritingTasksView: View {
     var body: some View {
         List {
             Section("当前阶段") {
-                Text(project.phaseLabel)
+                HStack {
+                    StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
+                    Spacer()
+                }
                 Text(taskHint)
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
@@ -32,10 +35,13 @@ struct WritingTasksView: View {
                         Button {
                             Task { await run(task) }
                         } label: {
-                            HStack {
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc.text")
+                                    .foregroundStyle(AppTheme.accent)
+                                    .frame(width: 24)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(task.title)
-                                        .font(.headline)
+                                        .font(.headline.weight(.semibold))
                                     Text(task.subtitle)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -54,6 +60,9 @@ struct WritingTasksView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.page)
         .sheet(isPresented: $showingResult) {
             if let result {
                 NavigationStack {

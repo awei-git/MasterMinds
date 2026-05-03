@@ -10,13 +10,16 @@ struct ExpansionChaptersView: View {
     var body: some View {
         List {
             if chapters.isEmpty && !isLoading {
-                ContentUnavailableView(
-                    "还没有章节结构",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("先在结构阶段生成 beat sheet，或在 Web 工作台导入章节结构。")
-                )
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("还没有章节结构")
+                        .font(.headline)
+                    Text("先在结构阶段生成 beat sheet，或在 Web 工作台导入章节结构。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 12)
             } else {
-                Section("逐章扩写") {
+                Section {
                     ForEach(chapters) { chapter in
                         NavigationLink {
                             ChapterEditorView(project: project, chapter: chapter)
@@ -24,9 +27,14 @@ struct ExpansionChaptersView: View {
                             ChapterRow(chapter: chapter)
                         }
                     }
+                } header: {
+                    SectionHeaderText(text: "Expansion Chapters")
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.page)
         .overlay {
             if isLoading {
                 ProgressView()
@@ -58,16 +66,13 @@ private struct ChapterRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(chapter.title)
-                    .font(.headline)
+                    .font(.headline.weight(.semibold))
                 if chapter.key {
-                    Image(systemName: "exclamationmark.bubble")
-                        .foregroundStyle(.orange)
+                    StatusPill(text: "关键", color: .orange)
                         .accessibilityLabel("关键章节")
                 }
                 Spacer()
-                Text(chapter.statusLabel)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusColor)
+                StatusPill(text: chapter.statusLabel, color: statusColor)
             }
 
             Text(chapter.summary)
@@ -76,9 +81,9 @@ private struct ChapterRow: View {
                 .lineLimit(3)
 
             HStack {
-                Label("\(chapter.wordBudget)", systemImage: "target")
+                Label("目标 \(chapter.wordBudget)", systemImage: "target")
                 if let wordCount = chapter.wordCount {
-                    Label("\(wordCount)", systemImage: "doc.text")
+                    Label("已写 \(wordCount)", systemImage: "doc.text")
                 }
             }
             .font(.caption2)
@@ -112,14 +117,12 @@ private struct ChapterEditorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(chapter.title)
                             .font(.title3.weight(.semibold))
                         Spacer()
-                        Text(chapter.statusLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                        StatusPill(text: chapter.statusLabel, color: AppTheme.phaseTint(project.phase))
                     }
 
                     Text(chapter.summary)
@@ -135,14 +138,14 @@ private struct ChapterEditorView: View {
                     Button {
                         Task { await run(kind: "chapter_briefing") }
                     } label: {
-                        Label("Briefing", systemImage: "doc.badge.gearshape")
+                        Label("生成 Briefing", systemImage: "doc.text")
                     }
                     .buttonStyle(.bordered)
 
                     Button {
                         Task { await run(kind: draft.isEmpty ? "chapter_draft" : "chapter_revision") }
                     } label: {
-                        Label(draft.isEmpty ? "生成正文" : "修订正文", systemImage: "wand.and.stars")
+                        Label(draft.isEmpty ? "生成正文" : "修订正文", systemImage: "square.and.pencil")
                     }
                     .buttonStyle(.borderedProminent)
 
@@ -158,9 +161,11 @@ private struct ChapterEditorView: View {
                     .font(.body.monospaced())
                     .frame(minHeight: 420)
                     .padding(8)
+                    .scrollContentBackground(.hidden)
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(.quaternary)
+                            .stroke(AppTheme.line)
                     }
 
                 HStack {
@@ -191,6 +196,7 @@ private struct ChapterEditorView: View {
         }
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .background(AppTheme.page)
         .overlay {
             if isLoading {
                 ProgressView()

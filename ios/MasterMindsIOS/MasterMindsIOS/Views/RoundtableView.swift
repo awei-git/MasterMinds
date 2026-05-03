@@ -11,24 +11,33 @@ struct RoundtableView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Form {
-                Section("议题") {
-                    TextField("输入本轮圆桌要讨论的问题", text: $topic, axis: .vertical)
-                        .lineLimit(2...5)
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeaderText(text: "Roundtable Brief")
+                TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(3...6)
+                    .padding(12)
+                    .background(AppTheme.page, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(AppTheme.line)
+                    }
+
+                HStack {
                     Stepper("最多 \(maxRounds) 轮", value: $maxRounds, in: 1...3)
+                        .font(.subheadline)
+                    Spacer()
                     Button {
                         Task { await startRoundtable() }
                     } label: {
-                        if isRunning {
-                            Label("圆桌进行中", systemImage: "hourglass")
-                        } else {
-                            Label("开始圆桌", systemImage: "person.3.sequence")
-                        }
+                        Label(isRunning ? "进行中" : "开始圆桌", systemImage: "person.3")
                     }
+                    .buttonStyle(.borderedProminent)
                     .disabled(topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
                 }
             }
-            .frame(maxHeight: 210)
+            .padding()
+            .background(AppTheme.surface)
 
             Divider()
 
@@ -39,13 +48,20 @@ struct RoundtableView: View {
                 }
                 .overlay {
                     if events.isEmpty {
-                        ContentUnavailableView(
-                            "还没有圆桌记录",
-                            systemImage: "person.3",
-                            description: Text("输入议题后开始，史官会在最后归纳纪要。")
-                        )
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("尚无本轮记录")
+                                .font(.headline)
+                            Text("输入明确议题后启动圆桌。每位角色独立发言，最后由史官归纳纪要。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(24)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(AppTheme.page)
                 .onChange(of: events.count) {
                     if let last = events.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
@@ -86,13 +102,11 @@ private struct RoundtableEventRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(color)
                 Spacer()
                 if let round = event.round {
-                    Text("第 \(round) 轮")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    StatusPill(text: "第 \(round) 轮", color: Color(.secondaryLabel))
                 }
             }
 
@@ -113,7 +127,7 @@ private struct RoundtableEventRow: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 10)
     }
 
     private var title: String {

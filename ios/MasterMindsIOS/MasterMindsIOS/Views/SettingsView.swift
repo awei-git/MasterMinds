@@ -9,13 +9,22 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("神仙会 Web Server") {
-                    TextField("http://localhost:3000", text: $serverURL)
+                    TextField(AppState.defaultServerBaseURL, text: $serverURL)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
-                    Text("Simulator 可用 localhost；真机请填 Mac 的局域网地址，例如 http://192.168.1.232:3000。")
+                    Text("真机不能使用 localhost。Mac 端请用 `pnpm dev:lan` 启动，然后填写 Mac 的局域网地址。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("快速设置") {
+                    Button("使用当前 Mac 地址") {
+                        serverURL = AppState.defaultServerBaseURL
+                    }
+                    Button("Simulator localhost") {
+                        serverURL = "http://localhost:3000"
+                    }
                 }
             }
             .navigationTitle("服务器")
@@ -29,6 +38,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         appState.serverBaseURL = serverURL
+                        Task { await appState.checkConnection() }
                         dismiss()
                     }
                 }

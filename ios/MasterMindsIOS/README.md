@@ -26,10 +26,10 @@ open MasterMindsIOS.xcodeproj
 Start the web server first:
 
 ```bash
-pnpm dev
+pnpm dev:lan
 ```
 
-The app defaults to `http://localhost:3000`, which works in Simulator. On a physical iPhone, open Settings in the app and use the Mac's LAN URL, for example `http://192.168.1.232:3000`.
+The app defaults to `http://192.168.1.232:3000` for physical-device testing on the current Mac network. In Simulator, open Settings and use `http://localhost:3000` if preferred.
 
 ## Build From CLI
 

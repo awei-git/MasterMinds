@@ -24,6 +24,7 @@
 		CA5A8B989805B4D0C3C19F95 /* WritingTasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16CED35119AA6C53A55A1ADC /* WritingTasksView.swift */; };
 		CCF6BEC6D699FA0D760798FF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49235ED72222F30263DABFC6 /* SettingsView.swift */; };
 		D88B9D77736DA37B421EFA13 /* MasterMindsIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0069474C2BB83B396B9017EF /* MasterMindsIOSApp.swift */; };
+		DB65442DB3291F5D2C908267 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB07037FAB0278FA4485630 /* AppTheme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +45,7 @@
 		16CED35119AA6C53A55A1ADC /* WritingTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WritingTasksView.swift; sourceTree = "<group>"; };
 		234FA5913095BC2BA5B37102 /* PhaseFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseFlowView.swift; sourceTree = "<group>"; };
 		254AEA257D461DE533541624 /* WorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowTests.swift; sourceTree = "<group>"; };
+		3AB07037FAB0278FA4485630 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		49235ED72222F30263DABFC6 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4E2A9C73DF8F0EA1D703E6CE /* RoundtableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundtableView.swift; sourceTree = "<group>"; };
 		5E2231A945BE8144AA27EC55 /* ExpansionChaptersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpansionChaptersView.swift; sourceTree = "<group>"; };
@@ -109,6 +111,7 @@
 		A156834E0626909F1D3DF416 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				3AB07037FAB0278FA4485630 /* AppTheme.swift */,
 				A655C6260FE395B0B7293FCB /* CreateProjectView.swift */,
 				6F9AA2CB89996337315167BA /* DocumentView.swift */,
 				5E2231A945BE8144AA27EC55 /* ExpansionChaptersView.swift */,
@@ -237,6 +240,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C7FC5D996B59719AA418DF46 /* AppState.swift in Sources */,
+				DB65442DB3291F5D2C908267 /* AppTheme.swift in Sources */,
 				0833F3A3BAABEA07AA76005C /* CreateProjectView.swift in Sources */,
 				256B8C2DFCBDCE9F7BAD4F35 /* DocumentView.swift in Sources */,
 				88C0D00D12BFD11B1F276B44 /* ExpansionChaptersView.swift in Sources */,
