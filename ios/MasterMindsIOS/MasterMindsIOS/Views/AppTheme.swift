@@ -13,6 +13,25 @@ enum AppTheme {
     static let brass = Color(red: 0.860, green: 0.705, blue: 0.430)
     static let reverseInk = Color(red: 0.055, green: 0.050, blue: 0.044)
     static let editorMeasure: CGFloat = 720
+    static let displayFace = "STSongti-SC-Black"
+    static let titleFace = "STSongti-SC-Bold"
+    static let proseFace = "STSongti-SC-Regular"
+
+    static func display(_ size: CGFloat) -> Font {
+        .custom(displayFace, size: size)
+    }
+
+    static func title(_ size: CGFloat) -> Font {
+        .custom(titleFace, size: size)
+    }
+
+    static func prose(_ size: CGFloat) -> Font {
+        .custom(proseFace, size: size)
+    }
+
+    static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .default)
+    }
 
     static func phaseTint(_ phase: String) -> Color {
         switch phase {
@@ -63,15 +82,15 @@ struct MetricTile: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.subheadline)
+                .font(AppTheme.ui(15, weight: .semibold))
                 .foregroundStyle(AppTheme.brass)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(.caption2.weight(.semibold))
+                    .font(AppTheme.ui(11, weight: .semibold))
                     .foregroundStyle(AppTheme.muted)
                 Text(value)
-                    .font(.caption.weight(.semibold))
+                    .font(AppTheme.ui(12, weight: .semibold))
                     .foregroundStyle(AppTheme.ink)
                     .lineLimit(1)
             }
@@ -103,7 +122,7 @@ struct StatusPill: View {
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .font(AppTheme.ui(11, weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -120,7 +139,7 @@ struct SectionHeaderText: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.caption.weight(.semibold))
+            .font(AppTheme.ui(12, weight: .semibold))
             .foregroundStyle(AppTheme.muted)
             .tracking(1.1)
     }

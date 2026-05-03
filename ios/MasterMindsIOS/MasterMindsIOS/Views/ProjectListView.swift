@@ -11,12 +11,12 @@ struct ProjectListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Library")
-                        .font(.title2.weight(.semibold))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("神仙会")
+                        .font(AppTheme.display(44))
                         .foregroundStyle(AppTheme.ink)
-                    Text("\(projects.count) manuscripts")
-                        .font(.caption)
+                    Text("稿件库 · \(projects.count) 个项目")
+                        .font(AppTheme.ui(13, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
                 .padding(.horizontal, 18)
@@ -134,12 +134,12 @@ private struct ProjectRow: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(project.title)
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(18))
                         .foregroundStyle(AppTheme.ink)
                         .lineLimit(1)
                     Spacer()
                     Text(project.updatedAt, style: .date)
-                        .font(.caption2)
+                        .font(AppTheme.ui(11, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
 
@@ -148,7 +148,7 @@ private struct ProjectRow: View {
                     Text("·")
                     Text(project.status)
                 }
-                .font(.caption)
+                .font(AppTheme.ui(12, weight: .medium))
                 .foregroundStyle(AppTheme.muted)
             }
 
@@ -188,14 +188,14 @@ private struct ServerStatusRow: View {
         SurfacePanel {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: icon)
-                    .font(.title3)
+                    .font(AppTheme.ui(20, weight: .semibold))
                     .foregroundStyle(color)
                     .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppTheme.title(16))
                     Spacer()
                     if state == .checking {
                         ProgressView()
@@ -207,11 +207,11 @@ private struct ServerStatusRow: View {
                     .foregroundStyle(AppTheme.muted)
                     .lineLimit(1)
                 Text(cloudTitle)
-                    .font(.caption)
+                    .font(AppTheme.ui(12, weight: .medium))
                     .foregroundStyle(cloudColor)
                 if case .offline(let message) = state {
                     Text(message)
-                        .font(.caption)
+                        .font(AppTheme.prose(14))
                         .foregroundStyle(AppTheme.muted)
                         .lineLimit(2)
                     Button("重新连接", action: onRetry)
@@ -274,10 +274,10 @@ private struct EmptyProjectList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("没有项目")
-                .font(.headline)
+                .font(AppTheme.title(22))
                 .foregroundStyle(AppTheme.ink)
             Text("创建一个长篇项目开始协同写作。")
-                .font(.caption)
+                .font(AppTheme.prose(15))
                 .foregroundStyle(AppTheme.muted)
         }
         .padding(.vertical, 12)

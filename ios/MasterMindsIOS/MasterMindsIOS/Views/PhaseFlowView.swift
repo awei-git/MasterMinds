@@ -80,9 +80,9 @@ private struct PhaseRow: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(phase.label)
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(17))
                     Text(phase.goal)
-                        .font(.caption)
+                        .font(AppTheme.prose(14))
                         .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()

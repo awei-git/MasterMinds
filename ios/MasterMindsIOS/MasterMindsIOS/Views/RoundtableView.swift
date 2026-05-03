@@ -33,13 +33,13 @@ struct RoundtableView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     SectionHeaderText(text: "Roundtable Session")
                     Text("把本轮争议写清楚，再让不同职能轮流拆解。")
-                        .font(.subheadline)
+                        .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
                 }
 
                 TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.body)
+                    .font(AppTheme.prose(17))
                     .foregroundStyle(AppTheme.ink)
                     .lineLimit(5...8)
                     .padding(14)
@@ -53,7 +53,7 @@ struct RoundtableView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Label("轮次", systemImage: "repeat")
-                                .font(.subheadline.weight(.semibold))
+                                .font(AppTheme.title(16))
                             Spacer()
                             Text("\(maxRounds)")
                                 .font(.title3.monospacedDigit().weight(.semibold))
@@ -89,9 +89,9 @@ struct RoundtableView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("会议记录")
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(18))
                     Text(events.isEmpty ? "等待开始" : "\(events.count) 条事件")
-                        .font(.caption)
+                        .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
@@ -184,8 +184,8 @@ private struct RoundtableEventRow: View {
 
             VStack(alignment: .leading, spacing: 9) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
+                   Text(title)
+                        .font(AppTheme.title(16))
                         .foregroundStyle(tint)
                     Spacer()
                     if let round = event.round {
@@ -195,19 +195,19 @@ private struct RoundtableEventRow: View {
 
                 if let message = event.message {
                     Text(message.content)
-                        .font(.body)
-                        .lineSpacing(4)
+                        .font(AppTheme.prose(17))
+                        .lineSpacing(6)
                         .textSelection(.enabled)
                 } else if let topic = event.topic {
                     Text(topic)
-                        .font(.subheadline)
+                        .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
                 } else if let error = event.error {
                     Text(error)
                         .foregroundStyle(.red)
                 } else {
                     Text(event.type)
-                        .font(.caption)
+                        .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
             }
@@ -259,15 +259,15 @@ private struct RoleSeatRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(WorkflowRole.alias(role).prefix(1))
-                .font(.caption.weight(.bold))
+                .font(AppTheme.title(12))
                 .foregroundStyle(AppTheme.reverseInk)
                 .frame(width: 24, height: 24)
                 .background(AppTheme.roleTint(role), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(WorkflowRole.alias(role))
-                    .font(.caption.weight(.semibold))
+                    .font(AppTheme.title(13))
                 Text(brief)
-                    .font(.caption2)
+                    .font(AppTheme.ui(11, weight: .medium))
                     .foregroundStyle(AppTheme.muted)
             }
             Spacer()
@@ -286,12 +286,12 @@ private struct EmptyTranscriptView: View {
         SurfacePanel {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "quote.bubble")
-                    .font(.title2)
+                    .font(AppTheme.ui(22, weight: .semibold))
                     .foregroundStyle(AppTheme.brass)
                 Text("尚无本轮记录")
-                    .font(.headline)
+                    .font(AppTheme.title(18))
                 Text("输入明确议题后启动圆桌。每位角色独立发言，最后由史官归纳纪要。")
-                    .font(.callout)
+                    .font(AppTheme.prose(15))
                     .foregroundStyle(AppTheme.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -58,11 +58,11 @@ private struct ProjectHeader: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(project.title)
-                        .font(.title2.weight(.semibold))
+                        .font(AppTheme.title(24))
                         .foregroundStyle(AppTheme.ink)
                         .lineLimit(1)
                     Text("Manuscript workspace")
-                        .font(.caption)
+                        .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
@@ -96,7 +96,7 @@ private struct WorkflowRail: View {
             ForEach(Workflow.phases, id: \.self) { phase in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(Workflow.phaseLabel(phase))
-                        .font(.caption2.weight(.semibold))
+                        .font(AppTheme.ui(11, weight: .semibold))
                         .foregroundStyle(phase == normalized(currentPhase) ? AppTheme.ink : AppTheme.muted)
                         .lineLimit(1)
                     ThinProgress(
@@ -140,7 +140,7 @@ private struct ModeBar: View {
                         selectedTab = mode.0
                     } label: {
                         Label(mode.1, systemImage: mode.2)
-                            .font(.subheadline.weight(.semibold))
+                            .font(AppTheme.ui(15, weight: .semibold))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(selectedTab == mode.0 ? AppTheme.accent : Color.clear)

@@ -16,9 +16,10 @@ struct PhaseSummaryView: View {
                 } else if let content, !content.isEmpty {
                     ScrollView {
                         Text(content)
-                            .font(.body)
+                            .font(AppTheme.prose(17))
+                            .lineSpacing(6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
+                            .padding(22)
                     }
                 } else {
                     ContentUnavailableView("没有纪要", systemImage: "doc.text", description: Text("这个阶段还没有保存纪要。"))

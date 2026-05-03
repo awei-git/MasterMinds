@@ -101,14 +101,14 @@ private struct StageDossier: View {
                     VStack(alignment: .leading, spacing: 4) {
                         SectionHeaderText(text: "Current Stage")
                         Text(project.phaseLabel)
-                            .font(.title3.weight(.semibold))
+                            .font(AppTheme.title(22))
                     }
                     Spacer()
                     StatusPill(text: project.status, color: AppTheme.phaseTint(project.phase))
                 }
 
                 Text(taskHint)
-                    .font(.callout)
+                    .font(AppTheme.prose(16))
                     .foregroundStyle(AppTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -148,10 +148,10 @@ private struct WritingTaskCard: View {
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text(task.title)
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(18))
                         .foregroundStyle(AppTheme.ink)
                     Text(task.subtitle)
-                        .font(.callout)
+                        .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
@@ -193,7 +193,7 @@ private struct ResultSummary: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Label("最近产物", systemImage: "checkmark.seal")
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(18))
                     Spacer()
                     Button("打开", action: open)
                         .buttonStyle(.bordered)
@@ -203,7 +203,7 @@ private struct ResultSummary: View {
                     .foregroundStyle(AppTheme.muted)
                     .lineLimit(1)
                 Text(result.content)
-                    .font(.callout)
+                    .font(AppTheme.prose(15))
                     .foregroundStyle(AppTheme.muted)
                     .lineLimit(4)
             }

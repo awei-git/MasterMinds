@@ -20,9 +20,9 @@ struct ExpansionChaptersView: View {
             if chapters.isEmpty && !isLoading {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("还没有章节结构")
-                        .font(.headline)
+                        .font(AppTheme.title(20))
                     Text("先在结构阶段生成 beat sheet，或在 Web 工作台导入章节结构。")
-                        .font(.callout)
+                        .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
                 }
                 .padding(.vertical, 12)
@@ -80,7 +80,7 @@ private struct ChapterRow: View {
             VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
                 Text(chapter.title)
-                    .font(.headline.weight(.semibold))
+                    .font(AppTheme.title(17))
                 if chapter.key {
                     StatusPill(text: "关键", color: .orange)
                         .accessibilityLabel("关键章节")
@@ -90,7 +90,7 @@ private struct ChapterRow: View {
             }
 
             Text(chapter.summary)
-                .font(.caption)
+                .font(AppTheme.prose(14))
                 .foregroundStyle(AppTheme.muted)
                 .lineLimit(3)
 
@@ -125,10 +125,10 @@ private struct ChapterOverview: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Draft Map")
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.title(18))
                     Spacer()
                     Text("\(chapters.count) chapters")
-                        .font(.caption)
+                        .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
                 HStack(spacing: 12) {
@@ -210,9 +210,9 @@ private struct ChapterEditorView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(chapter.title)
-                        .font(.title2.weight(.semibold))
+                        .font(AppTheme.title(24))
                     Text("\(wordCount) 词 · \(draft.count) 字符 · 约 \(readingMinutes) 分钟")
-                        .font(.caption)
+                        .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
@@ -245,9 +245,9 @@ private struct ChapterEditorView: View {
             .disabled(isLoading || isRunning || isSaving)
 
             TextEditor(text: $draft)
-                .font(.system(size: 18, design: .serif))
+                .font(AppTheme.prose(19))
                 .foregroundStyle(AppTheme.ink)
-                .lineSpacing(5)
+                .lineSpacing(7)
                 .frame(minHeight: focusMode ? 720 : 560)
                 .padding(22)
                 .scrollContentBackground(.hidden)
@@ -274,7 +274,7 @@ private struct ChapterEditorView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionHeaderText(text: "Chapter Brief")
                     Text(chapter.summary)
-                        .font(.callout)
+                        .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
                     Divider()
                     MetricTile(label: "章节", value: chapter.chapter, icon: "number")

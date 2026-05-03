@@ -7,7 +7,8 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             ProjectListView(selectedProject: $selectedProject)
-                .navigationTitle("神仙会")
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
         } detail: {
             if let selectedProject {
                 ProjectDetailView(project: selectedProject)
@@ -32,10 +33,10 @@ private struct EmptyWorkspaceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("协同写作室")
-                .font(.largeTitle.weight(.semibold))
+                .font(AppTheme.display(34))
                 .foregroundStyle(AppTheme.ink)
             Text("选择一个项目，进入构思、世界与角色、结构、全文速写和逐章扩写流程。")
-                .font(.body)
+                .font(AppTheme.prose(17))
                 .foregroundStyle(AppTheme.muted)
                 .frame(maxWidth: 440, alignment: .leading)
             Divider()
@@ -44,7 +45,7 @@ private struct EmptyWorkspaceView: View {
                 Label("独立任务负责产出文档", systemImage: "doc.text")
                 Label("章节视图负责扩写和修订", systemImage: "text.book.closed")
             }
-            .font(.callout)
+            .font(AppTheme.prose(16))
             .foregroundStyle(AppTheme.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
