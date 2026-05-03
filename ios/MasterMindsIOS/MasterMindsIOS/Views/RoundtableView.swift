@@ -12,22 +12,23 @@ struct RoundtableView: View {
     @State private var statusMessage = "等待议题"
     @State private var runError: String?
     @State private var currentRunId = UUID().uuidString
+    @State private var isLogExpanded = false
 
     var body: some View {
         Group {
             if horizontalSizeClass == .compact {
                 VStack(spacing: 0) {
                     sessionPanel
-                        .frame(maxHeight: isRunning || !events.isEmpty ? 290 : 360)
+                        .frame(maxHeight: isRunning || !events.isEmpty ? 230 : 340)
                     Divider()
-                    transcript
+                    discussionArea
                 }
             } else {
                 HStack(alignment: .top, spacing: 0) {
                     sessionPanel
                         .frame(width: 320)
                     Divider()
-                    transcript
+                    discussionArea
                 }
             }
         }
@@ -120,16 +121,23 @@ struct RoundtableView: View {
         }
     }
 
-    private var transcript: some View {
+    private var discussionArea: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("会议记录")
+            discussionFeed
+            meetingLogDrawer
+        }
+    }
+
+    private var discussionFeed: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("圆桌讨论")
                         .font(AppTheme.title(18))
-                    Text(events.isEmpty ? statusMessage : "\(events.count) 条事件 · \(statusMessage)")
+                    Text(discussionEvents.isEmpty ? statusMessage : "\(discussionEvents.count) 条发言 · \(statusMessage)")
                         .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(runError == nil ? AppTheme.muted : .red)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
                 Spacer()
                 if isRunning {
@@ -148,10 +156,10 @@ struct RoundtableView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if events.isEmpty {
-                            EmptyTranscriptView()
+                        if discussionEvents.isEmpty {
+                            EmptyDiscussionView(hasEvents: !events.isEmpty, status: statusMessage)
                         } else {
-                            ForEach(events) { event in
+                            ForEach(discussionEvents) { event in
                                 RoundtableEventRow(event: event)
                                     .id(event.id)
                             }
@@ -160,9 +168,78 @@ struct RoundtableView: View {
                     .padding(20)
                 }
                 .background(AppTheme.page)
-                .onChange(of: events.count) {
-                    if let last = events.last {
+                .onChange(of: discussionEvents.count) {
+                    if let last = discussionEvents.last {
                         proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    private var meetingLogDrawer: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isLogExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: isLogExpanded ? "chevron.down" : "chevron.up")
+                        .font(AppTheme.ui(12, weight: .semibold))
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("会议记录")
+                            .font(AppTheme.ui(13, weight: .semibold))
+                        Text(events.isEmpty ? "技术事件会收在这里" : "\(events.count) 条事件 · \(statusMessage)")
+                            .font(AppTheme.ui(11, weight: .medium))
+                            .foregroundStyle(runError == nil ? AppTheme.muted : .red)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if isRunning {
+                        ProgressView()
+                            .scaleEffect(0.78)
+                    }
+                }
+                .foregroundStyle(AppTheme.ink)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(AppTheme.paper)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(AppTheme.line)
+                    .frame(height: 1)
+            }
+
+            if isLogExpanded {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            if events.isEmpty {
+                                Text("暂无会议记录。")
+                                    .font(AppTheme.prose(14))
+                                    .foregroundStyle(AppTheme.muted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                ForEach(events) { event in
+                                    RoundtableLogRow(event: event)
+                                        .id(event.id)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    .frame(maxHeight: horizontalSizeClass == .compact ? 180 : 240)
+                    .background(AppTheme.surface)
+                    .onChange(of: events.count) {
+                        if let last = events.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -180,6 +257,12 @@ struct RoundtableView: View {
         ]
     }
 
+    private var discussionEvents: [RoundtableEvent] {
+        events.filter { event in
+            event.message != nil || event.type == "error"
+        }
+    }
+
     private func startRoundtable() async {
         guard !isRunning else { return }
         let trimmedTopic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -191,6 +274,7 @@ struct RoundtableView: View {
         isRunning = true
         events.removeAll()
         runError = nil
+        isLogExpanded = false
         statusMessage = "正在连接 \(appState.serverBaseURL)"
         defer { isRunning = false }
 
@@ -389,6 +473,93 @@ private struct RoundtableEventRow: View {
     }
 }
 
+private struct RoundtableLogRow: View {
+    let event: RoundtableEvent
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(tint)
+                .frame(width: 7, height: 7)
+                .padding(.top, 7)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(AppTheme.ui(12, weight: .semibold))
+                        .foregroundStyle(tint)
+                    if let round = event.round {
+                        Text("第 \(round) 轮")
+                            .font(AppTheme.ui(10, weight: .semibold))
+                            .foregroundStyle(AppTheme.muted)
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text(detail)
+                    .font(AppTheme.prose(13))
+                    .foregroundStyle(event.type == "error" ? .red : AppTheme.muted)
+                    .lineLimit(3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(AppTheme.line.opacity(0.8))
+        }
+    }
+
+    private var title: String {
+        if let message = event.message {
+            return WorkflowRole.alias(message.role)
+        }
+        if let label = event.label {
+            return label
+        }
+        switch event.type {
+        case "roundtable_start": return "圆桌开始"
+        case "round_start": return "新一轮"
+        case "agent_start": return "准备发言"
+        case "agent_done": return "发言完成"
+        case "agent_pass": return "跳过"
+        case "round_done": return "本轮结束"
+        case "chronicler_start": return "史官整理"
+        case "chronicler_done": return "纪要完成"
+        case "done": return "完成"
+        case "error": return "错误"
+        default: return event.type
+        }
+    }
+
+    private var detail: String {
+        if let message = event.message {
+            return message.content
+        }
+        if let topic = event.topic {
+            return topic
+        }
+        if let error = event.error {
+            return error
+        }
+        if let role = event.role {
+            return WorkflowRole.alias(role)
+        }
+        return event.type
+    }
+
+    private var tint: Color {
+        if let role = event.message?.role ?? event.role {
+            return AppTheme.roleTint(role)
+        }
+        return switch event.type {
+        case "error": .red
+        case "chronicler_done": .orange
+        case "agent_done": AppTheme.ink
+        default: AppTheme.muted
+        }
+    }
+}
+
 private struct RoleSeatRow: View {
     let role: String
     let brief: String
@@ -418,16 +589,19 @@ private struct RoleSeatRow: View {
     }
 }
 
-private struct EmptyTranscriptView: View {
+private struct EmptyDiscussionView: View {
+    let hasEvents: Bool
+    let status: String
+
     var body: some View {
         SurfacePanel {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "quote.bubble")
                     .font(AppTheme.ui(22, weight: .semibold))
                     .foregroundStyle(AppTheme.brass)
-                Text("尚无本轮记录")
+                Text(hasEvents ? "等待角色发言" : "尚无本轮讨论")
                     .font(AppTheme.title(18))
-                Text("输入明确议题后启动圆桌。每位角色独立发言，最后由史官归纳纪要。")
+                Text(hasEvents ? status : "输入明确议题后启动圆桌。中间区域只显示实质发言，会议记录默认收起。")
                     .font(AppTheme.prose(15))
                     .foregroundStyle(AppTheme.muted)
             }
