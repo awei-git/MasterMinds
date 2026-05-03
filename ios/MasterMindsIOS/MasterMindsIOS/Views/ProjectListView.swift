@@ -17,16 +17,13 @@ struct ProjectListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .center, spacing: 14) {
-                    ShenxianLogoMark(size: 58)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("神仙会")
-                            .font(AppTheme.display(42))
-                            .foregroundStyle(AppTheme.ink)
-                        Text("稿件库 · \(projects.count) 个项目")
-                            .font(AppTheme.ui(13, weight: .medium))
-                            .foregroundStyle(AppTheme.muted)
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("神仙会")
+                        .font(AppTheme.display(42))
+                        .foregroundStyle(AppTheme.ink)
+                    Text("稿件库 · \(projects.count) 个项目")
+                        .font(AppTheme.ui(13, weight: .medium))
+                        .foregroundStyle(AppTheme.muted)
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 18)
@@ -96,9 +93,10 @@ struct ProjectListView: View {
                 Button {
                     showingSettings = true
                 } label: {
-                    ShenxianLogoMark(size: 28)
+                    Image(systemName: "gearshape")
+                        .font(AppTheme.ui(17, weight: .semibold))
                 }
-                .accessibilityLabel("服务器")
+                .accessibilityLabel("设置")
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {

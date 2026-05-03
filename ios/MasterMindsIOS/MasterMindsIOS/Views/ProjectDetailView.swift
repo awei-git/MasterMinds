@@ -129,7 +129,7 @@ private struct ModeBar: View {
         ("roundtable", "圆桌", "person.3"),
         ("tasks", "文档", "doc.text"),
         ("chapters", "章节", "text.book.closed"),
-        ("phases", "流程", "point.3.connected.trianglepath.dotted"),
+        ("phases", "流程", "list.bullet.rectangle"),
     ]
 
     var body: some View {
