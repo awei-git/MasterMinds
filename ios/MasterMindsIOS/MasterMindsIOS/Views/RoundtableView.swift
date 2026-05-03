@@ -12,21 +12,17 @@ struct RoundtableView: View {
     @State private var statusMessage = "等待议题"
     @State private var runError: String?
     @State private var currentRunId = UUID().uuidString
-    @State private var isLogExpanded = false
+    @State private var isRecordExpanded = false
+    @State private var isThreadOpen = false
 
     var body: some View {
         Group {
             if horizontalSizeClass == .compact {
-                VStack(spacing: 0) {
-                    sessionPanel
-                        .frame(maxHeight: isRunning || !events.isEmpty ? 230 : 340)
-                    Divider()
-                    discussionArea
-                }
+                compactWorkspace
             } else {
                 HStack(alignment: .top, spacing: 0) {
                     sessionPanel
-                        .frame(width: 320)
+                        .frame(width: 340)
                     Divider()
                     discussionArea
                 }
@@ -38,75 +34,22 @@ struct RoundtableView: View {
             KeyboardDoneToolbar()
 #endif
         }
+        .navigationDestination(isPresented: $isThreadOpen) {
+            RoundtableThreadView(
+                project: project,
+                topic: topic,
+                status: statusMessage,
+                error: runError,
+                events: discussionEvents,
+                isRunning: isRunning
+            )
+        }
     }
 
     private var sessionPanel: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        SectionHeaderText(text: "Roundtable Session")
-                        Text("把本轮争议写清楚，再让不同职能轮流拆解。")
-                            .font(AppTheme.prose(15))
-                            .foregroundStyle(AppTheme.muted)
-                    }
-
-                    TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(AppTheme.prose(17))
-                        .foregroundStyle(AppTheme.ink)
-                        .lineLimit(5...8)
-                        .padding(14)
-                        .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(AppTheme.line)
-                        }
-
-                    SurfacePanel {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Label("轮次", systemImage: "repeat")
-                                    .font(AppTheme.title(16))
-                                Spacer()
-                                Text("\(maxRounds)")
-                                    .font(.title3.monospacedDigit().weight(.semibold))
-                            }
-                            Stepper("最多 \(maxRounds) 轮", value: $maxRounds, in: 1...3)
-                                .labelsHidden()
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionHeaderText(text: "Seats")
-                        ForEach(seats, id: \.role) { seat in
-                            RoleSeatRow(role: seat.role, brief: seat.brief)
-                        }
-                    }
-
-                    Button {
-                        Task { await startRoundtable() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if isRunning {
-                                ProgressView()
-                                    .tint(AppTheme.reverseInk)
-                            }
-                            Label(isRunning ? "圆桌进行中" : "开始圆桌", systemImage: "person.3.sequence")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
-                    .id("run-button")
-
-                    RoundtableRunStatus(
-                        status: statusMessage,
-                        error: runError,
-                        eventCount: events.count,
-                        isRunning: isRunning
-                    )
-                }
+                sessionControls
                 .padding(18)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -121,128 +64,138 @@ struct RoundtableView: View {
         }
     }
 
-    private var discussionArea: some View {
-        VStack(spacing: 0) {
-            discussionFeed
-            meetingLogDrawer
+    private var compactWorkspace: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                SurfacePanel {
+                    sessionControls
+                }
+
+                DiscussionThreadSummary(
+                    status: statusMessage,
+                    error: runError,
+                    events: discussionEvents,
+                    isRunning: isRunning,
+                    onOpen: { isThreadOpen = true }
+                )
+
+                MeetingRecordPanel(
+                    topic: topic,
+                    status: statusMessage,
+                    error: runError,
+                    events: events,
+                    isRunning: isRunning,
+                    isExpanded: $isRecordExpanded
+                )
+            }
+            .padding(16)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .background(AppTheme.page)
     }
 
-    private var discussionFeed: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("圆桌讨论")
-                        .font(AppTheme.title(18))
-                    Text(discussionEvents.isEmpty ? statusMessage : "\(discussionEvents.count) 条发言 · \(statusMessage)")
-                        .font(AppTheme.ui(12, weight: .medium))
-                        .foregroundStyle(runError == nil ? AppTheme.muted : .red)
-                        .lineLimit(1)
+    private var sessionControls: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                SectionHeaderText(text: "Roundtable Session")
+                Text("把本轮争议写清楚，再让不同职能轮流拆解。")
+                    .font(AppTheme.prose(15))
+                    .foregroundStyle(AppTheme.muted)
+            }
+
+            TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(AppTheme.prose(17))
+                .foregroundStyle(AppTheme.ink)
+                .lineLimit(4...7)
+                .padding(14)
+                .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(AppTheme.line)
                 }
+
+            HStack(alignment: .center, spacing: 12) {
+                Label("轮次", systemImage: "repeat")
+                    .font(AppTheme.title(16))
                 Spacer()
-                if isRunning {
-                    ProgressView()
-                }
+                Stepper("最多 \(maxRounds) 轮", value: $maxRounds, in: 1...3)
+                    .labelsHidden()
+                Text("\(maxRounds)")
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .frame(width: 28, alignment: .trailing)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .background(AppTheme.paper)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(AppTheme.line)
-                    .frame(height: 1)
+            .padding(12)
+            .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(AppTheme.line)
             }
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        if discussionEvents.isEmpty {
-                            EmptyDiscussionView(hasEvents: !events.isEmpty, status: statusMessage)
-                        } else {
-                            ForEach(discussionEvents) { event in
-                                RoundtableEventRow(event: event)
-                                    .id(event.id)
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-                .background(AppTheme.page)
-                .onChange(of: discussionEvents.count) {
-                    if let last = discussionEvents.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeaderText(text: "Seats")
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(seats, id: \.role) { seat in
+                        RoleSeatRow(role: seat.role, brief: seat.brief)
                     }
                 }
             }
-        }
-    }
 
-    private var meetingLogDrawer: some View {
-        VStack(spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isLogExpanded.toggle()
-                }
+                Task { await startRoundtable() }
             } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: isLogExpanded ? "chevron.down" : "chevron.up")
-                        .font(AppTheme.ui(12, weight: .semibold))
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("会议记录")
-                            .font(AppTheme.ui(13, weight: .semibold))
-                        Text(events.isEmpty ? "技术事件会收在这里" : "\(events.count) 条事件 · \(statusMessage)")
-                            .font(AppTheme.ui(11, weight: .medium))
-                            .foregroundStyle(runError == nil ? AppTheme.muted : .red)
-                            .lineLimit(1)
-                    }
-                    Spacer()
+                HStack(spacing: 8) {
                     if isRunning {
                         ProgressView()
-                            .scaleEffect(0.78)
+                            .tint(AppTheme.reverseInk)
                     }
+                    Label(isRunning ? "圆桌进行中" : "开始圆桌", systemImage: "person.3.sequence")
                 }
-                .foregroundStyle(AppTheme.ink)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-            .background(AppTheme.paper)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(AppTheme.line)
-                    .frame(height: 1)
-            }
+            .buttonStyle(.borderedProminent)
+            .disabled(topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
+            .id("run-button")
 
-            if isLogExpanded {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            if events.isEmpty {
-                                Text("暂无会议记录。")
-                                    .font(AppTheme.prose(14))
-                                    .foregroundStyle(AppTheme.muted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            } else {
-                                ForEach(events) { event in
-                                    RoundtableLogRow(event: event)
-                                        .id(event.id)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-                    .frame(maxHeight: horizontalSizeClass == .compact ? 180 : 240)
-                    .background(AppTheme.surface)
-                    .onChange(of: events.count) {
-                        if let last = events.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
-            }
+            RoundtableRunStatus(
+                status: statusMessage,
+                error: runError,
+                eventCount: events.count,
+                isRunning: isRunning
+            )
+        }
+    }
+
+    private var discussionArea: some View {
+        VStack(spacing: 14) {
+            RoundtableThreadPanel(
+                project: project,
+                topic: topic,
+                status: statusMessage,
+                error: runError,
+                events: discussionEvents,
+                isRunning: isRunning
+            )
+
+            MeetingRecordPanel(
+                topic: topic,
+                status: statusMessage,
+                error: runError,
+                events: events,
+                isRunning: isRunning,
+                isExpanded: $isRecordExpanded
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .frame(maxHeight: isRecordExpanded ? 360 : 136)
+        }
+        .padding(.top, 16)
+        .background(AppTheme.page)
+    }
+
+    private var discussionEvents: [RoundtableEvent] {
+        events.filter { event in
+            event.message != nil || event.type == "error"
         }
     }
 
@@ -257,12 +210,6 @@ struct RoundtableView: View {
         ]
     }
 
-    private var discussionEvents: [RoundtableEvent] {
-        events.filter { event in
-            event.message != nil || event.type == "error"
-        }
-    }
-
     private func startRoundtable() async {
         guard !isRunning else { return }
         let trimmedTopic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -270,11 +217,14 @@ struct RoundtableView: View {
 #if canImport(UIKit)
         KeyboardDismissal.dismiss()
 #endif
+        if horizontalSizeClass == .compact {
+            isThreadOpen = true
+        }
         currentRunId = UUID().uuidString
         isRunning = true
         events.removeAll()
         runError = nil
-        isLogExpanded = false
+        isRecordExpanded = false
         statusMessage = "正在连接 \(appState.serverBaseURL)"
         defer { isRunning = false }
 
@@ -388,58 +338,301 @@ private struct RoundtableRunStatus: View {
     }
 }
 
-private struct RoundtableEventRow: View {
-    let event: RoundtableEvent
+private struct DiscussionThreadSummary: View {
+    let status: String
+    let error: String?
+    let events: [RoundtableEvent]
+    let isRunning: Bool
+    let onOpen: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(spacing: 4) {
-                Circle()
-                    .fill(tint)
-                    .frame(width: 10, height: 10)
-                Rectangle()
-                    .fill(AppTheme.line)
-                    .frame(width: 1)
+        Button(action: onOpen) {
+            SurfacePanel {
+                HStack(alignment: .center, spacing: 14) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(AppTheme.ui(24, weight: .semibold))
+                        .foregroundStyle(error == nil ? AppTheme.brass : .red)
+                        .frame(width: 34)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text("圆桌讨论")
+                                .font(AppTheme.title(19))
+                            if isRunning {
+                                ProgressView()
+                                    .scaleEffect(0.78)
+                            }
+                        }
+                        Text(events.isEmpty ? status : "\(events.count) 条发言 · \(status)")
+                            .font(AppTheme.ui(12, weight: .medium))
+                            .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                            .lineLimit(1)
+                        Text(latestText)
+                            .font(AppTheme.prose(15))
+                            .foregroundStyle(AppTheme.ink)
+                            .lineLimit(3)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(AppTheme.ui(15, weight: .semibold))
+                        .foregroundStyle(AppTheme.muted)
+                }
             }
-            .frame(width: 18)
+        }
+        .buttonStyle(.plain)
+    }
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .firstTextBaseline) {
-                   Text(title)
-                        .font(AppTheme.title(16))
-                        .foregroundStyle(tint)
+    private var latestText: String {
+        if let error {
+            return error
+        }
+        if let content = events.last?.message?.content {
+            return content
+        }
+        return "尚无发言"
+    }
+}
+
+private struct MeetingRecordPanel: View {
+    let topic: String
+    let status: String
+    let error: String?
+    let events: [RoundtableEvent]
+    let isRunning: Bool
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        SurfacePanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(AppTheme.ui(18, weight: .semibold))
+                        .foregroundStyle(error == nil ? AppTheme.brass : .red)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("会议记录")
+                            .font(AppTheme.title(18))
+                        Text(events.isEmpty ? status : "\(events.count) 条事件 · \(status)")
+                            .font(AppTheme.ui(12, weight: .medium))
+                            .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                            .lineLimit(1)
+                    }
                     Spacer()
-                    if let round = event.round {
-                        StatusPill(text: "第 \(round) 轮", color: AppTheme.muted)
+                    if isRunning {
+                        ProgressView()
+                            .scaleEffect(0.82)
                     }
                 }
 
-                if let message = event.message {
-                    Text(message.content)
-                        .font(AppTheme.prose(17))
-                        .lineSpacing(6)
-                        .textSelection(.enabled)
-                } else if let topic = event.topic {
+                if !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(topic)
                         .font(AppTheme.prose(15))
                         .foregroundStyle(AppTheme.muted)
-                } else if let error = event.error {
-                    Text(error)
-                        .foregroundStyle(.red)
-                } else {
-                    Text(event.type)
-                        .font(AppTheme.ui(12, weight: .medium))
-                        .foregroundStyle(AppTheme.muted)
+                        .lineLimit(3)
+                }
+
+                if let summary {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        SectionHeaderText(text: "Summary")
+                        Text(summary)
+                            .font(AppTheme.prose(15))
+                            .foregroundStyle(AppTheme.ink)
+                            .lineSpacing(5)
+                            .lineLimit(isExpanded ? nil : 4)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if !events.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Label(isExpanded ? "收起事件" : "查看事件", systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(AppTheme.ui(13, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.brass)
+                }
+
+                if isExpanded {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(events) { event in
+                            RoundtableLogRow(event: event)
+                                .id(event.id)
+                        }
+                    }
                 }
             }
-            .padding(14)
-            .background(AppTheme.paper)
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(AppTheme.line)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
+    }
+
+    private var summary: String? {
+        events.reversed().compactMap { event -> String? in
+            if event.type == "chronicler_done", let content = event.message?.content {
+                return content
+            }
+            if event.message?.role == "chronicler" {
+                return event.message?.content
+            }
+            return nil
+        }.first
+    }
+}
+
+private struct RoundtableThreadView: View {
+    let project: Project
+    let topic: String
+    let status: String
+    let error: String?
+    let events: [RoundtableEvent]
+    let isRunning: Bool
+
+    var body: some View {
+        RoundtableThreadPanel(
+            project: project,
+            topic: topic,
+            status: status,
+            error: error,
+            events: events,
+            isRunning: isRunning
+        )
+        .navigationTitle("圆桌讨论")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isRunning {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ProgressView()
+                }
+            }
+        }
+    }
+}
+
+private struct RoundtableThreadPanel: View {
+    let project: Project
+    let topic: String
+    let status: String
+    let error: String?
+    let events: [RoundtableEvent]
+    let isRunning: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(project.title)
+                        .font(AppTheme.title(18))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(events.isEmpty ? status : "\(events.count) 条发言")
+                        .font(AppTheme.ui(12, weight: .medium))
+                        .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                        .lineLimit(1)
+                }
+                if !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(topic)
+                        .font(AppTheme.prose(14))
+                        .foregroundStyle(AppTheme.muted)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(AppTheme.paper)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppTheme.line)
+                    .frame(height: 1)
+            }
+
+            RoundtableMessagesView(
+                events: events,
+                status: status,
+                error: error,
+                isRunning: isRunning
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.page)
+    }
+}
+
+private struct RoundtableMessagesView: View {
+    let events: [RoundtableEvent]
+    let status: String
+    let error: String?
+    let isRunning: Bool
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    if events.isEmpty {
+                        EmptyDiscussionView(hasEvents: false, status: error ?? status)
+                    } else {
+                        ForEach(events) { event in
+                            RoundtableMessageRow(event: event)
+                                .id(event.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
+            }
+            .background(AppTheme.page)
+            .onChange(of: events.count) {
+                if let last = events.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
+        }
+    }
+}
+
+private struct RoundtableMessageRow: View {
+    let event: RoundtableEvent
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            avatar
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(AppTheme.ui(12, weight: .semibold))
+                        .foregroundStyle(tint)
+                    if let round = event.round {
+                        Text("第 \(round) 轮")
+                            .font(AppTheme.ui(10, weight: .semibold))
+                            .foregroundStyle(AppTheme.muted)
+                    }
+                }
+
+                Text(bodyText)
+                    .font(AppTheme.prose(17))
+                    .foregroundStyle(event.type == "error" ? .red : AppTheme.ink)
+                    .lineSpacing(6)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(bubbleColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(event.type == "error" ? Color.red.opacity(0.45) : AppTheme.line)
+                    }
+            }
+            .frame(maxWidth: 620, alignment: .leading)
+            Spacer(minLength: 22)
+        }
+    }
+
+    private var avatar: some View {
+        Text(title.prefix(1))
+            .font(AppTheme.title(13))
+            .foregroundStyle(AppTheme.reverseInk)
+            .frame(width: 30, height: 30)
+            .background(tint, in: Circle())
     }
 
     private var title: String {
@@ -449,27 +642,34 @@ private struct RoundtableEventRow: View {
         if let label = event.label {
             return label
         }
-        switch event.type {
-        case "roundtable_start": return "圆桌开始"
-        case "round_start": return "新一轮"
-        case "round_done": return "本轮结束"
-        case "chronicler_start": return "史官"
-        case "done": return "完成"
-        case "error": return "错误"
-        default: return event.type
+        return event.type == "error" ? "错误" : event.type
+    }
+
+    private var bodyText: String {
+        if let content = event.message?.content {
+            return content
         }
+        if let error = event.error {
+            return error
+        }
+        if let topic = event.topic {
+            return topic
+        }
+        return event.type
+    }
+
+    private var bubbleColor: Color {
+        event.type == "error" ? Color.red.opacity(0.10) : AppTheme.paper
     }
 
     private var tint: Color {
+        if event.type == "error" {
+            return .red
+        }
         if let role = event.message?.role ?? event.role {
             return AppTheme.roleTint(role)
         }
-        return switch event.type {
-        case "error": .red
-        case "chronicler_done": .orange
-        case "agent_done": AppTheme.ink
-        default: AppTheme.muted
-        }
+        return AppTheme.brass
     }
 }
 
