@@ -265,8 +265,8 @@ private struct ServerStatusRow: View {
 
     private var color: Color {
         switch state {
-        case .online: .green
-        case .offline: .red
+        case .online: AppTheme.accent
+        case .offline: AppTheme.alert
         case .checking: .secondary
         case .unknown: .secondary
         }
@@ -285,7 +285,7 @@ private struct ServerStatusRow: View {
     private var cloudColor: Color {
         switch cloudState {
         case .available, .syncing: .secondary
-        case .unavailable: .orange
+        case .unavailable: AppTheme.warning
         case .unknown, .checking: .secondary
         }
     }

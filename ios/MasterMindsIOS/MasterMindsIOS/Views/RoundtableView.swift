@@ -316,12 +316,12 @@ private struct RoundtableRunStatus: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: error == nil ? (isRunning ? "dot.radiowaves.left.and.right" : "info.circle") : "exclamationmark.triangle")
                 .font(AppTheme.ui(15, weight: .semibold))
-                .foregroundStyle(error == nil ? AppTheme.brass : .red)
+                .foregroundStyle(error == nil ? AppTheme.brass : AppTheme.alert)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 4) {
                 Text(error ?? status)
                     .font(AppTheme.prose(14))
-                    .foregroundStyle(error == nil ? AppTheme.ink : .red)
+                    .foregroundStyle(error == nil ? AppTheme.ink : AppTheme.alert)
                     .lineLimit(3)
                 Text(eventCount == 0 ? "点击后会先连接服务器，再逐条显示角色发言。" : "已收到 \(eventCount) 条圆桌事件。")
                     .font(AppTheme.ui(11, weight: .medium))
@@ -333,7 +333,7 @@ private struct RoundtableRunStatus: View {
         .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(error == nil ? AppTheme.line : Color.red.opacity(0.45))
+                .stroke(error == nil ? AppTheme.line : AppTheme.alert.opacity(0.45))
         }
     }
 }
@@ -351,7 +351,7 @@ private struct DiscussionThreadSummary: View {
                 HStack(alignment: .center, spacing: 14) {
                     Image(systemName: "bubble.left.and.bubble.right")
                         .font(AppTheme.ui(24, weight: .semibold))
-                        .foregroundStyle(error == nil ? AppTheme.brass : .red)
+                        .foregroundStyle(error == nil ? AppTheme.brass : AppTheme.alert)
                         .frame(width: 34)
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 8) {
@@ -364,7 +364,7 @@ private struct DiscussionThreadSummary: View {
                         }
                         Text(events.isEmpty ? status : "\(events.count) 条发言 · \(status)")
                             .font(AppTheme.ui(12, weight: .medium))
-                            .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                            .foregroundStyle(error == nil ? AppTheme.muted : AppTheme.alert)
                             .lineLimit(1)
                         Text(latestText)
                             .font(AppTheme.prose(15))
@@ -406,14 +406,14 @@ private struct MeetingRecordPanel: View {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(AppTheme.ui(18, weight: .semibold))
-                        .foregroundStyle(error == nil ? AppTheme.brass : .red)
+                        .foregroundStyle(error == nil ? AppTheme.brass : AppTheme.alert)
                         .frame(width: 24)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("会议记录")
                             .font(AppTheme.title(18))
                         Text(events.isEmpty ? status : "\(events.count) 条事件 · \(status)")
                             .font(AppTheme.ui(12, weight: .medium))
-                            .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                            .foregroundStyle(error == nil ? AppTheme.muted : AppTheme.alert)
                             .lineLimit(1)
                     }
                     Spacer()
@@ -528,7 +528,7 @@ private struct RoundtableThreadPanel: View {
                     Spacer()
                     Text(events.isEmpty ? status : "\(events.count) 条发言")
                         .font(AppTheme.ui(12, weight: .medium))
-                        .foregroundStyle(error == nil ? AppTheme.muted : .red)
+                        .foregroundStyle(error == nil ? AppTheme.muted : AppTheme.alert)
                         .lineLimit(1)
                 }
                 if !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -611,7 +611,7 @@ private struct RoundtableMessageRow: View {
 
                 Text(bodyText)
                     .font(AppTheme.prose(17))
-                    .foregroundStyle(event.type == "error" ? .red : AppTheme.ink)
+                    .foregroundStyle(event.type == "error" ? AppTheme.alert : AppTheme.ink)
                     .lineSpacing(6)
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
@@ -619,7 +619,7 @@ private struct RoundtableMessageRow: View {
                     .background(bubbleColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(event.type == "error" ? Color.red.opacity(0.45) : AppTheme.line)
+                            .stroke(event.type == "error" ? AppTheme.alert.opacity(0.45) : AppTheme.line)
                     }
             }
             .frame(maxWidth: 620, alignment: .leading)
@@ -659,12 +659,12 @@ private struct RoundtableMessageRow: View {
     }
 
     private var bubbleColor: Color {
-        event.type == "error" ? Color.red.opacity(0.10) : AppTheme.paper
+        event.type == "error" ? AppTheme.alert.opacity(0.10) : AppTheme.paper
     }
 
     private var tint: Color {
         if event.type == "error" {
-            return .red
+            return AppTheme.alert
         }
         if let role = event.message?.role ?? event.role {
             return AppTheme.roleTint(role)
@@ -696,7 +696,7 @@ private struct RoundtableLogRow: View {
                 }
                 Text(detail)
                     .font(AppTheme.prose(13))
-                    .foregroundStyle(event.type == "error" ? .red : AppTheme.muted)
+                    .foregroundStyle(event.type == "error" ? AppTheme.alert : AppTheme.muted)
                     .lineLimit(3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -752,8 +752,8 @@ private struct RoundtableLogRow: View {
             return AppTheme.roleTint(role)
         }
         return switch event.type {
-        case "error": .red
-        case "chronicler_done": .orange
+        case "error": AppTheme.alert
+        case "chronicler_done": AppTheme.warning
         case "agent_done": AppTheme.ink
         default: AppTheme.muted
         }

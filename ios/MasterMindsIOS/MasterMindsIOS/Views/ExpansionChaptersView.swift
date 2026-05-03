@@ -82,7 +82,7 @@ private struct ChapterRow: View {
                 Text(chapter.title)
                     .font(AppTheme.title(17))
                 if chapter.key {
-                    StatusPill(text: "关键", color: .orange)
+                    StatusPill(text: "关键", color: AppTheme.warning)
                         .accessibilityLabel("关键章节")
                 }
                 Spacer()
@@ -109,8 +109,8 @@ private struct ChapterRow: View {
 
     private var statusColor: Color {
         switch chapter.status {
-        case "done": .green
-        case "review", "revising": .orange
+        case "done": AppTheme.accent
+        case "review", "revising": AppTheme.warning
         case "writing": AppTheme.accent
         default: AppTheme.muted
         }
@@ -289,7 +289,7 @@ private struct ChapterEditorView: View {
                     MetricTile(label: "目标", value: "\(chapter.wordBudget)", icon: "target")
                     MetricTile(label: "状态", value: chapter.statusLabel, icon: "circle.dotted")
                     if chapter.key {
-                        StatusPill(text: "关键章节", color: .orange)
+                        StatusPill(text: "关键章节", color: AppTheme.warning)
                     }
                 }
             }

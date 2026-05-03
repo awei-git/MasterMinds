@@ -101,7 +101,7 @@ private struct PhaseRow: View {
 
     private var statusColor: Color {
         if isCurrent { return AppTheme.accent }
-        if isPast { return .green }
+        if isPast { return AppTheme.accent }
         return AppTheme.muted
     }
 }

@@ -4,17 +4,21 @@ import UIKit
 #endif
 
 enum AppTheme {
-    static let page = Color(red: 0.068, green: 0.066, blue: 0.060)
-    static let surface = Color(red: 0.110, green: 0.104, blue: 0.092)
-    static let paper = Color(red: 0.150, green: 0.138, blue: 0.116)
-    static let sidebar = Color(red: 0.086, green: 0.080, blue: 0.070)
-    static let line = Color(red: 0.78, green: 0.70, blue: 0.56).opacity(0.23)
-    static let ink = Color(red: 0.955, green: 0.925, blue: 0.850)
-    static let muted = Color(red: 0.720, green: 0.660, blue: 0.555)
-    static let faint = Color(red: 0.505, green: 0.455, blue: 0.370)
-    static let accent = Color(red: 0.790, green: 0.615, blue: 0.365)
-    static let brass = Color(red: 0.860, green: 0.705, blue: 0.430)
-    static let reverseInk = Color(red: 0.055, green: 0.050, blue: 0.044)
+    static let page = Color(hex: 0x1A1A22)
+    static let surface = Color(hex: 0x26262F)
+    static let paper = Color(hex: 0x32323D)
+    static let sidebar = Color(hex: 0x14141B)
+    static let line = Color(hex: 0x3A3A46)
+    static let ink = Color(hex: 0xF2F2EE)
+    static let muted = Color(hex: 0xA0A0AC)
+    static let faint = Color(hex: 0x6E6E7A)
+    static let accent = Color(hex: 0x8FE5B8)
+    static let brass = Color(hex: 0xFFCB6E)
+    static let reverseInk = Color(hex: 0x1A1A22)
+    static let outBubble = Color(hex: 0x2C4438)
+    static let inBubble = Color(hex: 0x1C1C20)
+    static let alert = Color(hex: 0xFF9081)
+    static let warning = Color(hex: 0xFFA85C)
     static let editorMeasure: CGFloat = 720
     static let displayFace = "ZhiMangXing-Regular"
     static let titleFace = "LXGWWenKai-Regular"
@@ -38,26 +42,37 @@ enum AppTheme {
 
     static func phaseTint(_ phase: String) -> Color {
         switch phase {
-        case "conception": Color(red: 0.500, green: 0.650, blue: 0.770)
-        case "bible": Color(red: 0.655, green: 0.585, blue: 0.780)
-        case "structure": Color(red: 0.545, green: 0.700, blue: 0.565)
-        case "scriptment": Color(red: 0.820, green: 0.640, blue: 0.405)
-        case "expansion", "draft", "review", "revision", "final": Color(red: 0.820, green: 0.465, blue: 0.400)
+        case "conception": Color(hex: 0xD4A0F0)
+        case "bible": Color(hex: 0xA8B8FF)
+        case "structure": Color(hex: 0x7FC4F0)
+        case "scriptment": Color(hex: 0xFFCB6E)
+        case "expansion", "draft", "review", "revision", "final": Color(hex: 0x8FE5B8)
         default: accent
         }
     }
 
     static func roleTint(_ role: String) -> Color {
         switch role {
-        case "idea", "story_architect", "architect", "plot_doctor": Color(red: 0.500, green: 0.650, blue: 0.770)
-        case "character", "character_psychologist": Color(red: 0.800, green: 0.500, blue: 0.630)
-        case "writer", "bible_writer", "structure_writer", "scriptment_writer", "chapter_writer": Color(red: 0.620, green: 0.710, blue: 0.470)
-        case "editor", "style_editor", "market_editor", "scriptment_reviewer", "chapter_editor": Color(red: 0.860, green: 0.590, blue: 0.390)
-        case "reader": Color(red: 0.545, green: 0.700, blue: 0.565)
-        case "continuity", "continuity_editor": Color(red: 0.655, green: 0.585, blue: 0.780)
+        case "idea", "story_architect", "architect", "plot_doctor": Color(hex: 0x7FC4F0)
+        case "character", "character_psychologist": Color(hex: 0xFF9DBE)
+        case "writer", "bible_writer", "structure_writer", "scriptment_writer", "chapter_writer": Color(hex: 0x8FE5B8)
+        case "editor", "style_editor", "market_editor", "scriptment_reviewer", "chapter_editor": Color(hex: 0xFFA85C)
+        case "reader": Color(hex: 0xC7A8F0)
+        case "continuity", "continuity_editor": Color(hex: 0xA8B8FF)
         case "chronicler": brass
         default: accent
         }
+    }
+}
+
+extension Color {
+    init(hex: UInt, alpha: Double = 1.0) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255.0,
+            green: Double((hex >> 8) & 0xFF) / 255.0,
+            blue: Double(hex & 0xFF) / 255.0,
+            opacity: alpha
+        )
     }
 }
 
