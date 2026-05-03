@@ -42,11 +42,7 @@ struct ProjectDetailView: View {
     }
 
     private func loadWorkflow() async {
-        do {
-            workflow = try await appState.api.workflow()
-        } catch {
-            appState.lastError = error.localizedDescription
-        }
+        workflow = await appState.workflow()
     }
 
     private func changePhase(_ phase: String) {
@@ -55,7 +51,7 @@ struct ProjectDetailView: View {
             isChangingPhase = true
             defer { isChangingPhase = false }
             do {
-                project = try await appState.api.setPhase(slug: project.slug, phase: phase)
+                project = try await appState.setPhase(slug: project.slug, phase: phase)
             } catch {
                 appState.lastError = error.localizedDescription
             }

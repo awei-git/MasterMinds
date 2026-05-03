@@ -94,7 +94,7 @@ struct WritingTasksView: View {
         isRunningTask = task.kind
         defer { isRunningTask = nil }
         do {
-            result = try await appState.api.runWritingTask(projectSlug: project.slug, kind: task.kind)
+            result = try await appState.runWritingTask(projectSlug: project.slug, kind: task.kind)
             showingResult = true
         } catch {
             appState.lastError = error.localizedDescription

@@ -13,13 +13,13 @@ struct ProjectListView: View {
             Section {
                 ServerStatusRow(
                     state: appState.connectionState,
+                    cloudState: appState.cloudSyncState,
                     serverURL: appState.serverBaseURL,
                     onRetry: {
                         Task {
                             await appState.checkConnection()
-                            if case .online = appState.connectionState {
-                                await loadProjects()
-                            }
+                            await appState.checkCloudSync()
+                            await loadProjects()
                         }
                     }
                 )
@@ -71,6 +71,7 @@ struct ProjectListView: View {
         }
         .task {
             await appState.checkConnection()
+            await appState.checkCloudSync()
             await loadProjects()
         }
         .refreshable {
@@ -93,8 +94,7 @@ struct ProjectListView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            projects = try await appState.api.projects()
-            appState.connectionState = .online
+            projects = try await appState.projects()
             if selectedProject == nil {
                 selectedProject = projects.first
             }
@@ -138,6 +138,7 @@ private struct ProjectRow: View {
 
 private struct ServerStatusRow: View {
     let state: ServerConnectionState
+    let cloudState: CloudSyncState
     let serverURL: String
     let onRetry: () -> Void
 
@@ -162,6 +163,9 @@ private struct ServerStatusRow: View {
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Text(cloudTitle)
+                    .font(.caption)
+                    .foregroundStyle(cloudColor)
                 if case .offline(let message) = state {
                     Text(message)
                         .font(.caption)
@@ -200,6 +204,24 @@ private struct ServerStatusRow: View {
         case .offline: .red
         case .checking: .secondary
         case .unknown: .secondary
+        }
+    }
+
+    private var cloudTitle: String {
+        switch cloudState {
+        case .unknown: "iCloud 未检查"
+        case .checking: "正在检查 iCloud"
+        case .available: "iCloud 同步可用"
+        case .syncing: "正在同步到 iCloud"
+        case .unavailable(let message): "iCloud 不可用：\(message)"
+        }
+    }
+
+    private var cloudColor: Color {
+        switch cloudState {
+        case .available, .syncing: .secondary
+        case .unavailable: .orange
+        case .unknown, .checking: .secondary
         }
     }
 }

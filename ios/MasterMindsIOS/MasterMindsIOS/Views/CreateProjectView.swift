@@ -42,7 +42,7 @@ struct CreateProjectView: View {
         isCreating = true
         defer { isCreating = false }
         do {
-            let project = try await appState.api.createProject(title: title, type: type)
+            let project = try await appState.createProject(title: title, type: type)
             onCreated(project)
             dismiss()
         } catch {

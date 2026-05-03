@@ -14,6 +14,7 @@
 		293BAEB84AEBED6BEF434F15 /* WorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254AEA257D461DE533541624 /* WorkflowTests.swift */; };
 		4A7837AE21F66ABE02772F14 /* ProjectListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163002F13E59CEDE0F8F28E6 /* ProjectListView.swift */; };
 		50DC4EFA5E0442F8210F469A /* PhaseSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D425DEAAD8B2A2FC9D0C19EB /* PhaseSummaryView.swift */; };
+		6B0146E6EDFD082EA236615F /* CloudWritingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97824A9F5E11E8C1119366A6 /* CloudWritingStore.swift */; };
 		7A83EA9A169FFB9676042BF3 /* ProjectDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FCEB48F233AF6FBDF4CA36D /* ProjectDetailView.swift */; };
 		88C0D00D12BFD11B1F276B44 /* ExpansionChaptersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2231A945BE8144AA27EC55 /* ExpansionChaptersView.swift */; };
 		9FD88B2BBBB6F87F3D3DA659 /* RoundtableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2A9C73DF8F0EA1D703E6CE /* RoundtableView.swift */; };
@@ -51,6 +52,8 @@
 		5E2231A945BE8144AA27EC55 /* ExpansionChaptersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpansionChaptersView.swift; sourceTree = "<group>"; };
 		6F9AA2CB89996337315167BA /* DocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentView.swift; sourceTree = "<group>"; };
 		8B791849B1B848B492462F45 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		97824A9F5E11E8C1119366A6 /* CloudWritingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWritingStore.swift; sourceTree = "<group>"; };
+		9ABC3D0DC626CF99DAE2DBD0 /* MasterMindsIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MasterMindsIOS.entitlements; sourceTree = "<group>"; };
 		9E6989BF000E835C63DC5925 /* MasterMindsIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MasterMindsIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A655C6260FE395B0B7293FCB /* CreateProjectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateProjectView.swift; sourceTree = "<group>"; };
 		B849F08C6A269C1F29C9CDBD /* MasterMindsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterMindsAPI.swift; sourceTree = "<group>"; };
@@ -82,10 +85,12 @@
 			isa = PBXGroup;
 			children = (
 				8B791849B1B848B492462F45 /* Info.plist */,
+				9ABC3D0DC626CF99DAE2DBD0 /* MasterMindsIOS.entitlements */,
 				F629D800892D5D7AE44C5BE5 /* App */,
 				E6A5B334C0520AA581D999D7 /* Models */,
 				3B16E9B3E0F8AEACE94021DF /* Networking */,
 				1C92626E155595CAA889ECE5 /* Resources */,
+				FC568708A2CCE3153F4875C5 /* Sync */,
 				A156834E0626909F1D3DF416 /* Views */,
 			);
 			path = MasterMindsIOS;
@@ -151,6 +156,14 @@
 				0069474C2BB83B396B9017EF /* MasterMindsIOSApp.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		FC568708A2CCE3153F4875C5 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				97824A9F5E11E8C1119366A6 /* CloudWritingStore.swift */,
+			);
+			path = Sync;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -241,6 +254,7 @@
 			files = (
 				C7FC5D996B59719AA418DF46 /* AppState.swift in Sources */,
 				DB65442DB3291F5D2C908267 /* AppTheme.swift in Sources */,
+				6B0146E6EDFD082EA236615F /* CloudWritingStore.swift in Sources */,
 				0833F3A3BAABEA07AA76005C /* CreateProjectView.swift in Sources */,
 				256B8C2DFCBDCE9F7BAD4F35 /* DocumentView.swift in Sources */,
 				88C0D00D12BFD11B1F276B44 /* ExpansionChaptersView.swift in Sources */,
@@ -281,6 +295,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MasterMindsIOS/MasterMindsIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = MasterMindsIOS/Info.plist;
@@ -288,7 +303,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.masterminds.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.angwei.shenxianhui;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -455,6 +470,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = MasterMindsIOS/MasterMindsIOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = MasterMindsIOS/Info.plist;
@@ -462,7 +478,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.masterminds.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.angwei.shenxianhui;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

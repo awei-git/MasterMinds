@@ -52,7 +52,7 @@ struct ExpansionChaptersView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            chapters = try await appState.api.chapters(projectSlug: project.slug)
+            chapters = try await appState.chapters(projectSlug: project.slug)
         } catch {
             appState.lastError = error.localizedDescription
         }
@@ -211,7 +211,7 @@ private struct ChapterEditorView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            let artifact = try await appState.api.chapterDraft(projectSlug: project.slug, chapterId: chapter.id)
+            let artifact = try await appState.chapterDraft(projectSlug: project.slug, chapterId: chapter.id)
             draft = artifact.content ?? ""
             savedPath = artifact.path
         } catch {
@@ -223,7 +223,7 @@ private struct ChapterEditorView: View {
         isRunning = true
         defer { isRunning = false }
         do {
-            let result = try await appState.api.runWritingTask(
+            let result = try await appState.runWritingTask(
                 projectSlug: project.slug,
                 kind: kind,
                 chapterId: chapter.id,
@@ -242,7 +242,7 @@ private struct ChapterEditorView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            let result = try await appState.api.saveChapterDraft(
+            let result = try await appState.saveChapterDraft(
                 projectSlug: project.slug,
                 chapterId: chapter.id,
                 content: draft

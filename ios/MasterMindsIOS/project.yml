@@ -17,9 +17,22 @@ targets:
       - path: MasterMindsIOS
     info:
       path: MasterMindsIOS/Info.plist
+      properties:
+        CFBundleDisplayName: 神仙会
+        CFBundleName: 神仙会
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.masterminds.ios
+        PRODUCT_BUNDLE_IDENTIFIER: com.angwei.shenxianhui
+        CODE_SIGN_ENTITLEMENTS: MasterMindsIOS/MasterMindsIOS.entitlements
         ENABLE_USER_SCRIPT_SANDBOXING: "YES"
   MasterMindsIOSTests:
     type: bundle.unit-test

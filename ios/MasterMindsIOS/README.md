@@ -12,6 +12,7 @@ Native SwiftUI client for the 神仙会 writers' room server.
 - Roundtable execution through `/api/roundtable` with SSE event rendering
 - Independent writing tasks through `/api/writing-tasks`
 - Expansion chapter list, AI chapter drafting/revision, manual editing, and saving through `/api/beats` and `/api/writing-tasks`
+- Local-first cache with CloudKit-backed slow sync for projects, phases, chapter lists, and chapter drafts when the server is unreachable
 
 ## Generate The Xcode Project
 
@@ -30,6 +31,8 @@ pnpm dev:lan
 ```
 
 The app defaults to `http://192.168.1.232:3000` for physical-device testing on the current Mac network. In Simulator, open Settings and use `http://localhost:3000` if preferred.
+
+The signed device bundle is `com.angwei.shenxianhui`. iCloud status is visible in Settings. AI generation and roundtable runs still require the server; offline mode is for reading, project setup, phase changes, and chapter drafting/editing.
 
 ## Build From CLI
 

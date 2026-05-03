@@ -42,7 +42,7 @@ struct PhaseSummaryView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            content = try await appState.api.phaseSummary(projectSlug: projectSlug, phase: phase)
+            content = try await appState.phaseSummary(projectSlug: projectSlug, phase: phase)
         } catch {
             appState.lastError = error.localizedDescription
         }

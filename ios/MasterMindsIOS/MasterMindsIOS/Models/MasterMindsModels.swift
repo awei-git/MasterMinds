@@ -127,6 +127,59 @@ struct RoundtableEvent: Identifiable, Codable, Hashable {
 
 enum Workflow {
     static let phases: [String] = ["conception", "bible", "structure", "scriptment", "expansion"]
+    static let defaultResponse = WorkflowResponse(
+        phases: [
+            PhaseDefinition(
+                key: "conception",
+                label: "构思",
+                goal: "确定核心命题、人物关系和项目方向。",
+                roundtableRoles: ["story_architect", "character_psychologist", "market_editor"],
+                writingRole: nil,
+                outputArtifact: "conception_brief",
+                confirmationGate: "确认项目命题和叙事承诺"
+            ),
+            PhaseDefinition(
+                key: "bible",
+                label: "世界与角色",
+                goal: "建立角色档案、世界规则和长期冲突。",
+                roundtableRoles: ["story_architect", "character_psychologist", "style_editor"],
+                writingRole: "bible_writer",
+                outputArtifact: "project_bible",
+                confirmationGate: "确认 Bible 可支撑长篇写作"
+            ),
+            PhaseDefinition(
+                key: "structure",
+                label: "结构",
+                goal: "生成章节大纲、张力曲线和因果链。",
+                roundtableRoles: ["plot_doctor", "continuity_editor", "market_editor"],
+                writingRole: "structure_writer",
+                outputArtifact: "beat_sheet",
+                confirmationGate: "确认结构承重墙"
+            ),
+            PhaseDefinition(
+                key: "scriptment",
+                label: "全文速写",
+                goal: "用压缩全文验证叙事完整性。",
+                roundtableRoles: ["scriptment_reviewer", "style_editor", "continuity_editor"],
+                writingRole: "scriptment_writer",
+                outputArtifact: "scriptment",
+                confirmationGate: "确认信息经济和场景功能"
+            ),
+            PhaseDefinition(
+                key: "expansion",
+                label: "逐章扩写",
+                goal: "以章节为单位写作、修订和审稿。",
+                roundtableRoles: ["chapter_editor", "continuity_editor", "style_editor"],
+                writingRole: "chapter_writer",
+                outputArtifact: "chapter_drafts",
+                confirmationGate: "确认章节进入下一轮修订"
+            ),
+        ],
+        agents: [],
+        roundtableProtocol: "圆桌讨论需要连接服务器。离线时可以继续编辑章节草稿，并通过 iCloud 同步。",
+        scriptmentReviewProtocol: "Scriptment 审稿需要连接服务器。",
+        expansionProtocol: "逐章扩写支持离线编辑和 iCloud 慢同步；AI 生成需要服务器。"
+    )
 
     static func phaseLabel(_ key: String) -> String {
         switch key {
