@@ -13,16 +13,16 @@ enum AppTheme {
     static let brass = Color(red: 0.860, green: 0.705, blue: 0.430)
     static let reverseInk = Color(red: 0.055, green: 0.050, blue: 0.044)
     static let editorMeasure: CGFloat = 720
-    static let displayFace = "KaitiSC-Black"
-    static let titleFace = "SongtiSC-Bold"
-    static let proseFace = "SongtiSC-Regular"
+    static let displayFace = "ZhiMangXing-Regular"
+    static let titleFace = "LXGWWenKai-Regular"
+    static let proseFace = "LXGWWenKai-Regular"
 
     static func display(_ size: CGFloat) -> Font {
         .custom(displayFace, size: size)
     }
 
     static func title(_ size: CGFloat) -> Font {
-        .custom(titleFace, size: size)
+        .custom(titleFace, size: size).weight(.semibold)
     }
 
     static func prose(_ size: CGFloat) -> Font {
@@ -30,7 +30,7 @@ enum AppTheme {
     }
 
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .default)
+        .custom(proseFace, size: size).weight(weight)
     }
 
     static func phaseTint(_ phase: String) -> Color {
