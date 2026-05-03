@@ -1,20 +1,35 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var appState: AppState
     @State private var selectedProject: Project?
 
     var body: some View {
-        NavigationSplitView {
-            ProjectListView(selectedProject: $selectedProject)
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
-        } detail: {
-            if let selectedProject {
-                ProjectDetailView(project: selectedProject)
-                    .id(selectedProject.slug)
+        Group {
+            if horizontalSizeClass == .compact {
+                NavigationStack {
+                    ProjectListView(selectedProject: $selectedProject, usesNavigationLinks: true)
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .navigationDestination(for: Project.self) { project in
+                            ProjectDetailView(project: project)
+                                .id(project.slug)
+                        }
+                }
             } else {
-                EmptyWorkspaceView()
+                NavigationSplitView {
+                    ProjectListView(selectedProject: $selectedProject)
+                        .navigationTitle("")
+                        .navigationBarTitleDisplayMode(.inline)
+                } detail: {
+                    if let selectedProject {
+                        ProjectDetailView(project: selectedProject)
+                            .id(selectedProject.slug)
+                    } else {
+                        EmptyWorkspaceView()
+                    }
+                }
             }
         }
         .tint(AppTheme.accent)

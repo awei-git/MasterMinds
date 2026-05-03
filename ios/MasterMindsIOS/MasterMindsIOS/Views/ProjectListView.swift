@@ -3,21 +3,30 @@ import SwiftUI
 struct ProjectListView: View {
     @EnvironmentObject private var appState: AppState
     @Binding var selectedProject: Project?
+    let usesNavigationLinks: Bool
     @State private var projects: [Project] = []
     @State private var isLoading = false
     @State private var showingCreate = false
     @State private var showingSettings = false
 
+    init(selectedProject: Binding<Project?>, usesNavigationLinks: Bool = false) {
+        _selectedProject = selectedProject
+        self.usesNavigationLinks = usesNavigationLinks
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("神仙会")
-                        .font(AppTheme.display(44))
-                        .foregroundStyle(AppTheme.ink)
-                    Text("稿件库 · \(projects.count) 个项目")
-                        .font(AppTheme.ui(13, weight: .medium))
-                        .foregroundStyle(AppTheme.muted)
+                HStack(alignment: .center, spacing: 14) {
+                    ShenxianLogoMark(size: 58)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("神仙会")
+                            .font(AppTheme.display(42))
+                            .foregroundStyle(AppTheme.ink)
+                        Text("稿件库 · \(projects.count) 个项目")
+                            .font(AppTheme.ui(13, weight: .medium))
+                            .foregroundStyle(AppTheme.muted)
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 18)
@@ -52,15 +61,28 @@ struct ProjectListView: View {
                 } else {
                     LazyVStack(spacing: 8) {
                         ForEach(projects) { project in
-                            Button {
-                                selectedProject = project
-                            } label: {
-                                ProjectRow(
-                                    project: project,
-                                    isSelected: selectedProject?.slug == project.slug
-                                )
+                            if usesNavigationLinks {
+                                NavigationLink(value: project) {
+                                    ProjectRow(
+                                        project: project,
+                                        isSelected: selectedProject?.slug == project.slug
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    selectedProject = project
+                                })
+                            } else {
+                                Button {
+                                    selectedProject = project
+                                } label: {
+                                    ProjectRow(
+                                        project: project,
+                                        isSelected: selectedProject?.slug == project.slug
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -74,8 +96,9 @@ struct ProjectListView: View {
                 Button {
                     showingSettings = true
                 } label: {
-                    Label("服务器", systemImage: "server.rack")
+                    ShenxianLogoMark(size: 28)
                 }
+                .accessibilityLabel("服务器")
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {

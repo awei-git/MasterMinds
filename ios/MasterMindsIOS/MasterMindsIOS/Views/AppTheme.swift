@@ -13,9 +13,9 @@ enum AppTheme {
     static let brass = Color(red: 0.860, green: 0.705, blue: 0.430)
     static let reverseInk = Color(red: 0.055, green: 0.050, blue: 0.044)
     static let editorMeasure: CGFloat = 720
-    static let displayFace = "STSongti-SC-Black"
-    static let titleFace = "STSongti-SC-Bold"
-    static let proseFace = "STSongti-SC-Regular"
+    static let displayFace = "KaitiSC-Black"
+    static let titleFace = "SongtiSC-Bold"
+    static let proseFace = "SongtiSC-Regular"
 
     static func display(_ size: CGFloat) -> Font {
         .custom(displayFace, size: size)
@@ -142,5 +142,53 @@ struct SectionHeaderText: View {
             .font(AppTheme.ui(12, weight: .semibold))
             .foregroundStyle(AppTheme.muted)
             .tracking(1.1)
+    }
+}
+
+struct ShenxianLogoMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppTheme.paper)
+            Circle()
+                .stroke(AppTheme.brass.opacity(0.72), lineWidth: max(1.4, size * 0.035))
+            ForEach(0..<6) { index in
+                Capsule()
+                    .fill(AppTheme.brass.opacity(0.34))
+                    .frame(width: size * 0.32, height: max(0.7, size * 0.012))
+                    .rotationEffect(lineAngle(index))
+                    .offset(lineOffset(index))
+            }
+            ForEach(0..<6) { index in
+                Circle()
+                    .fill(AppTheme.brass)
+                    .frame(width: size * 0.105, height: size * 0.105)
+                    .offset(pointOffset(index))
+            }
+            Circle()
+                .fill(AppTheme.accent)
+                .frame(width: size * 0.15, height: size * 0.15)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private func pointOffset(_ index: Int) -> CGSize {
+        let angle = (Double(index) / 6.0) * Double.pi * 2.0 - Double.pi / 2.0
+        let radius = size * 0.32
+        return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
+    }
+
+    private func lineOffset(_ index: Int) -> CGSize {
+        let angle = (Double(index) / 6.0) * Double.pi * 2.0 - Double.pi / 2.0
+        let radius = size * 0.16
+        return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
+    }
+
+    private func lineAngle(_ index: Int) -> Angle {
+        let angle = (Double(index) / 6.0) * Double.pi * 2.0 - Double.pi / 2.0
+        return .radians(angle)
     }
 }
