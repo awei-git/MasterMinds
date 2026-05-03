@@ -9,6 +9,14 @@ struct ExpansionChaptersView: View {
 
     var body: some View {
         List {
+            if !chapters.isEmpty {
+                Section {
+                    ChapterOverview(chapters: chapters)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
             if chapters.isEmpty && !isLoading {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("还没有章节结构")
@@ -63,7 +71,13 @@ private struct ChapterRow: View {
     let chapter: ChapterUnit
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 12) {
+            Text(chapter.chapter)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
                 Text(chapter.title)
                     .font(.headline.weight(.semibold))
@@ -88,6 +102,7 @@ private struct ChapterRow: View {
             }
             .font(.caption2)
             .foregroundStyle(.tertiary)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -98,6 +113,33 @@ private struct ChapterRow: View {
         case "review", "revising": .orange
         case "writing": .accentColor
         default: .secondary
+        }
+    }
+}
+
+private struct ChapterOverview: View {
+    let chapters: [ChapterUnit]
+
+    var body: some View {
+        SurfacePanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Draft Map")
+                        .font(.headline.weight(.semibold))
+                    Spacer()
+                    Text("\(chapters.count) chapters")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 12) {
+                    MetricTile(label: "目标字数", value: "\(chapters.map(\.wordBudget).reduce(0, +))", icon: "target")
+                    MetricTile(label: "已完成", value: "\(chapters.filter { $0.status == "done" }.count)", icon: "checkmark.circle")
+                }
+                ThinProgress(
+                    value: chapters.isEmpty ? 0 : Double(chapters.filter { $0.status != "blank" }.count) / Double(chapters.count),
+                    color: AppTheme.phaseTint("expansion")
+                )
+            }
         }
     }
 }
@@ -113,90 +155,46 @@ private struct ChapterEditorView: View {
     @State private var isLoading = false
     @State private var isRunning = false
     @State private var isSaving = false
+    @State private var focusMode = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text(chapter.title)
-                            .font(.title3.weight(.semibold))
-                        Spacer()
-                        StatusPill(text: chapter.statusLabel, color: AppTheme.phaseTint(project.phase))
-                    }
-
-                    Text(chapter.summary)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
-                TextField("补充指令", text: $instruction, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...4)
-
-                HStack {
-                    Button {
-                        Task { await run(kind: "chapter_briefing") }
-                    } label: {
-                        Label("生成 Briefing", systemImage: "doc.text")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        Task { await run(kind: draft.isEmpty ? "chapter_draft" : "chapter_revision") }
-                    } label: {
-                        Label(draft.isEmpty ? "生成正文" : "修订正文", systemImage: "square.and.pencil")
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Spacer()
-
-                    if isRunning {
-                        ProgressView()
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    editorColumn
+                    if !focusMode {
+                        inspector
+                            .frame(width: 280)
                     }
                 }
-                .disabled(isLoading || isRunning || isSaving)
 
-                TextEditor(text: $draft)
-                    .font(.body.monospaced())
-                    .frame(minHeight: 420)
-                    .padding(8)
-                    .scrollContentBackground(.hidden)
-                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(AppTheme.line)
+                VStack(alignment: .leading, spacing: 16) {
+                    if !focusMode {
+                        inspector
                     }
-
-                HStack {
-                    Text("\(draft.count) 字符")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Label("保存", systemImage: "square.and.arrow.down")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isLoading || isRunning || isSaving)
-                }
-
-                if let savedPath {
-                    Text("保存路径：\(savedPath)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    editorColumn
                 }
             }
-            .padding()
+            .padding(20)
         }
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
         .background(AppTheme.page)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    focusMode.toggle()
+                } label: {
+                    Label(focusMode ? "显示上下文" : "专注", systemImage: focusMode ? "sidebar.right" : "rectangle.inset.filled")
+                }
+                Button {
+                    Task { await save() }
+                } label: {
+                    Label("保存", systemImage: "square.and.arrow.down")
+                }
+                .disabled(isLoading || isRunning || isSaving)
+            }
+        }
         .overlay {
             if isLoading {
                 ProgressView()
@@ -204,6 +202,112 @@ private struct ChapterEditorView: View {
         }
         .task {
             await loadDraft()
+        }
+    }
+
+    private var editorColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(chapter.title)
+                        .font(.title2.weight(.semibold))
+                    Text("\(wordCount) 词 · \(draft.count) 字符 · 约 \(readingMinutes) 分钟")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isSaving {
+                    ProgressView()
+                } else {
+                    StatusPill(text: savedPath == nil ? "本地草稿" : "已保存", color: AppTheme.brass)
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField("补充指令", text: $instruction, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
+                Button {
+                    Task { await run(kind: "chapter_briefing") }
+                } label: {
+                    Label("Brief", systemImage: "doc.text")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    Task { await run(kind: draft.isEmpty ? "chapter_draft" : "chapter_revision") }
+                } label: {
+                    Label(draft.isEmpty ? "生成" : "修订", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .disabled(isLoading || isRunning || isSaving)
+
+            TextEditor(text: $draft)
+                .font(.system(size: 18, design: .serif))
+                .lineSpacing(5)
+                .frame(minHeight: focusMode ? 720 : 560)
+                .padding(22)
+                .scrollContentBackground(.hidden)
+                .background(AppTheme.paper)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(AppTheme.line)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            if let savedPath {
+                Text(savedPath)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: AppTheme.editorMeasure)
+    }
+
+    private var inspector: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SurfacePanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeaderText(text: "Chapter Brief")
+                    Text(chapter.summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Divider()
+                    MetricTile(label: "章节", value: chapter.chapter, icon: "number")
+                    MetricTile(label: "目标", value: "\(chapter.wordBudget)", icon: "target")
+                    MetricTile(label: "状态", value: chapter.statusLabel, icon: "circle.dotted")
+                    if chapter.key {
+                        StatusPill(text: "关键章节", color: .orange)
+                    }
+                }
+            }
+        }
+    }
+
+    private var wordCount: Int {
+        draft
+            .split { $0.isWhitespace || $0.isNewline }
+            .count
+    }
+
+    private var readingMinutes: Int {
+        max(1, Int(ceil(Double(max(wordCount, 1)) / 250.0)))
+    }
+
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let result = try await appState.saveChapterDraft(
+                projectSlug: project.slug,
+                chapterId: chapter.id,
+                content: draft
+            )
+            savedPath = result.path
+        } catch {
+            appState.lastError = error.localizedDescription
         }
     }
 
@@ -238,18 +342,4 @@ private struct ChapterEditorView: View {
         }
     }
 
-    private func save() async {
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            let result = try await appState.saveChapterDraft(
-                projectSlug: project.slug,
-                chapterId: chapter.id,
-                content: draft
-            )
-            savedPath = result.path
-        } catch {
-            appState.lastError = error.localizedDescription
-        }
-    }
 }

@@ -15,16 +15,7 @@ struct ProjectDetailView: View {
         VStack(spacing: 0) {
             ProjectHeader(project: project)
 
-            Picker("视图", selection: $selectedTab) {
-                Text("圆桌").tag("roundtable")
-                Text("文档").tag("tasks")
-                Text("章节").tag("chapters")
-                Text("流程").tag("phases")
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-            .background(AppTheme.surface)
+            ModeBar(selectedTab: $selectedTab)
 
             TabContent(
                 selectedTab: selectedTab,
@@ -63,22 +54,29 @@ private struct ProjectHeader: View {
     let project: Project
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
-                Text(project.title)
-                    .font(.title2.weight(.semibold))
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(project.title)
+                        .font(.title2.weight(.semibold))
+                        .lineLimit(1)
+                    Text("Manuscript workspace")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
             }
 
-            HStack(spacing: 18) {
-                MetaItem(label: "类型", value: project.type == "screenplay" ? "剧本" : "小说")
-                MetaItem(label: "状态", value: project.status)
-                MetaItem(label: "更新", value: project.updatedAt.formatted(date: .abbreviated, time: .omitted))
+            HStack(spacing: 12) {
+                MetricTile(label: "类型", value: project.type == "screenplay" ? "剧本" : "小说", icon: "book.pages")
+                MetricTile(label: "状态", value: project.status, icon: "circle.dotted")
+                MetricTile(label: "更新", value: project.updatedAt.formatted(date: .abbreviated, time: .omitted), icon: "clock")
             }
+
+            WorkflowRail(currentPhase: project.phase)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .background(AppTheme.surface)
         .overlay(alignment: .bottom) {
@@ -89,18 +87,76 @@ private struct ProjectHeader: View {
     }
 }
 
-private struct MetaItem: View {
-    let label: String
-    let value: String
+private struct WorkflowRail: View {
+    let currentPhase: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.primary)
+        HStack(spacing: 8) {
+            ForEach(Workflow.phases, id: \.self) { phase in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(Workflow.phaseLabel(phase))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(phase == normalized(currentPhase) ? AppTheme.ink : .secondary)
+                        .lineLimit(1)
+                    ThinProgress(
+                        value: phase == normalized(currentPhase) ? 1 : completed(phase) ? 1 : 0,
+                        color: completed(phase) || phase == normalized(currentPhase) ? AppTheme.phaseTint(phase) : AppTheme.line
+                    )
+                }
+            }
+        }
+    }
+
+    private func normalized(_ phase: String) -> String {
+        ["draft", "review", "revision", "final"].contains(phase) ? "expansion" : phase
+    }
+
+    private func completed(_ phase: String) -> Bool {
+        let current = normalized(currentPhase)
+        guard
+            let phaseIndex = Workflow.phases.firstIndex(of: phase),
+            let currentIndex = Workflow.phases.firstIndex(of: current)
+        else { return false }
+        return phaseIndex < currentIndex
+    }
+}
+
+private struct ModeBar: View {
+    @Binding var selectedTab: String
+
+    private let modes = [
+        ("roundtable", "圆桌", "person.3"),
+        ("tasks", "文档", "doc.text"),
+        ("chapters", "章节", "text.book.closed"),
+        ("phases", "流程", "point.3.connected.trianglepath.dotted"),
+    ]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(modes, id: \.0) { mode in
+                    Button {
+                        selectedTab = mode.0
+                    } label: {
+                        Label(mode.1, systemImage: mode.2)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(selectedTab == mode.0 ? AppTheme.accent : Color.clear)
+                            .foregroundStyle(selectedTab == mode.0 ? AppTheme.paper : AppTheme.ink)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(AppTheme.paper)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.line)
+                .frame(height: 1)
         }
     }
 }

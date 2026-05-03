@@ -9,8 +9,18 @@ struct ProjectListView: View {
     @State private var showingSettings = false
 
     var body: some View {
-        List(selection: $selectedProject) {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Library")
+                        .font(.title2.weight(.semibold))
+                    Text("\(projects.count) manuscripts")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+
                 ServerStatusRow(
                     state: appState.connectionState,
                     cloudState: appState.cloudSyncState,
@@ -23,31 +33,41 @@ struct ProjectListView: View {
                         }
                     }
                 )
-                .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14))
-            }
+                .padding(.horizontal, 14)
 
-            Section {
+                SectionHeaderText(text: "Manuscripts")
+                    .padding(.horizontal, 18)
+
                 if isLoading && projects.isEmpty {
                     HStack {
                         ProgressView()
                         Text("加载项目")
                             .foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, 18)
                 } else if projects.isEmpty {
                     EmptyProjectList()
+                        .padding(.horizontal, 18)
                 } else {
-                    ForEach(projects) { project in
-                        ProjectRow(project: project)
-                            .tag(project)
+                    LazyVStack(spacing: 8) {
+                        ForEach(projects) { project in
+                            Button {
+                                selectedProject = project
+                            } label: {
+                                ProjectRow(
+                                    project: project,
+                                    isSelected: selectedProject?.slug == project.slug
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                    .padding(.horizontal, 10)
                 }
-            } header: {
-                SectionHeaderText(text: "Projects")
             }
+            .padding(.bottom, 20)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.page)
+        .background(AppTheme.sidebar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -107,32 +127,54 @@ struct ProjectListView: View {
 
 private struct ProjectRow: View {
     let project: Project
+    let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(AppTheme.phaseTint(project.phase))
-                .frame(width: 4)
-
+        VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 7) {
-                Text(project.title)
-                    .font(.headline.weight(.semibold))
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(project.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.ink)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(project.updatedAt, style: .date)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
 
                 HStack(spacing: 8) {
                     Text(project.type == "screenplay" ? "剧本" : "小说")
                     Text("·")
                     Text(project.status)
-                    Text("·")
-                    Text(project.updatedAt, style: .date)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            Spacer()
-            StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
+
+            HStack(spacing: 10) {
+                ThinProgress(value: phaseProgress(project.phase), color: AppTheme.phaseTint(project.phase))
+                StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
+            }
         }
-        .padding(.vertical, 8)
+        .padding(12)
+        .background(isSelected ? AppTheme.paper : AppTheme.surface.opacity(0.72))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSelected ? AppTheme.brass.opacity(0.55) : AppTheme.line)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func phaseProgress(_ phase: String) -> Double {
+        switch phase {
+        case "conception": 0.12
+        case "bible": 0.32
+        case "structure": 0.50
+        case "scriptment": 0.68
+        case "expansion", "draft", "review", "revision", "final": 0.86
+        default: 0.2
+        }
     }
 }
 
@@ -143,13 +185,14 @@ private struct ServerStatusRow: View {
     let onRetry: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
-                .frame(width: 22)
+        SurfacePanel {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(color)
+                    .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
@@ -175,6 +218,7 @@ private struct ServerStatusRow: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .padding(.top, 4)
+                }
                 }
             }
         }
