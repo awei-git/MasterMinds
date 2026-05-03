@@ -40,6 +40,7 @@ struct RoundtableView: View {
                 TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.body)
+                    .foregroundStyle(AppTheme.ink)
                     .lineLimit(5...8)
                     .padding(14)
                     .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

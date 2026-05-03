@@ -6,8 +6,9 @@ enum AppTheme {
     static let paper = Color(red: 1.000, green: 0.997, blue: 0.988)
     static let sidebar = Color(red: 0.925, green: 0.913, blue: 0.890)
     static let line = Color(red: 0.72, green: 0.69, blue: 0.63).opacity(0.42)
-    static let ink = Color.primary
-    static let muted = Color.secondary
+    static let ink = Color(red: 0.12, green: 0.105, blue: 0.085)
+    static let muted = Color(red: 0.42, green: 0.39, blue: 0.34)
+    static let faint = Color(red: 0.58, green: 0.54, blue: 0.48)
     static let accent = Color(red: 0.23, green: 0.20, blue: 0.16)
     static let brass = Color(red: 0.58, green: 0.43, blue: 0.24)
     static let editorMeasure: CGFloat = 720
@@ -66,7 +67,7 @@ struct MetricTile: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                 Text(value)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.ink)
@@ -114,7 +115,7 @@ struct SectionHeaderText: View {
     var body: some View {
         Text(text.uppercased())
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.muted)
             .tracking(1.1)
     }
 }

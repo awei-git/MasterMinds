@@ -226,6 +226,7 @@ private struct ChapterEditorView: View {
             HStack(spacing: 10) {
                 TextField("补充指令", text: $instruction, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
+                    .foregroundStyle(AppTheme.ink)
                     .lineLimit(2...4)
                 Button {
                     Task { await run(kind: "chapter_briefing") }
@@ -245,6 +246,7 @@ private struct ChapterEditorView: View {
 
             TextEditor(text: $draft)
                 .font(.system(size: 18, design: .serif))
+                .foregroundStyle(AppTheme.ink)
                 .lineSpacing(5)
                 .frame(minHeight: focusMode ? 720 : 560)
                 .padding(22)
