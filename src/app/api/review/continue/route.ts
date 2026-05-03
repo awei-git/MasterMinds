@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
         const fullDraft = loadFullDraft(projectSlug);
         send({ type: "revise_start", round: currentRound + 1 });
 
-        const revisedDraft = await reviseFromIssues(
+        await reviseFromIssues(
           fullDraft,
           roundState.aggregated,
           projectSlug,

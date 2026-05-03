@@ -1,0 +1,249 @@
+import SwiftUI
+
+struct ExpansionChaptersView: View {
+    @EnvironmentObject private var appState: AppState
+    let project: Project
+
+    @State private var chapters: [ChapterUnit] = []
+    @State private var isLoading = false
+
+    var body: some View {
+        List {
+            if chapters.isEmpty && !isLoading {
+                ContentUnavailableView(
+                    "还没有章节结构",
+                    systemImage: "list.bullet.rectangle",
+                    description: Text("先在结构阶段生成 beat sheet，或在 Web 工作台导入章节结构。")
+                )
+            } else {
+                Section("逐章扩写") {
+                    ForEach(chapters) { chapter in
+                        NavigationLink {
+                            ChapterEditorView(project: project, chapter: chapter)
+                        } label: {
+                            ChapterRow(chapter: chapter)
+                        }
+                    }
+                }
+            }
+        }
+        .overlay {
+            if isLoading {
+                ProgressView()
+            }
+        }
+        .refreshable {
+            await load()
+        }
+        .task {
+            await load()
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            chapters = try await appState.api.chapters(projectSlug: project.slug)
+        } catch {
+            appState.lastError = error.localizedDescription
+        }
+    }
+}
+
+private struct ChapterRow: View {
+    let chapter: ChapterUnit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(chapter.title)
+                    .font(.headline)
+                if chapter.key {
+                    Image(systemName: "exclamationmark.bubble")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("关键章节")
+                }
+                Spacer()
+                Text(chapter.statusLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+
+            Text(chapter.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+
+            HStack {
+                Label("\(chapter.wordBudget)", systemImage: "target")
+                if let wordCount = chapter.wordCount {
+                    Label("\(wordCount)", systemImage: "doc.text")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusColor: Color {
+        switch chapter.status {
+        case "done": .green
+        case "review", "revising": .orange
+        case "writing": .accentColor
+        default: .secondary
+        }
+    }
+}
+
+private struct ChapterEditorView: View {
+    @EnvironmentObject private var appState: AppState
+    let project: Project
+    let chapter: ChapterUnit
+
+    @State private var draft = ""
+    @State private var instruction = ""
+    @State private var savedPath: String?
+    @State private var isLoading = false
+    @State private var isRunning = false
+    @State private var isSaving = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(chapter.title)
+                            .font(.title3.weight(.semibold))
+                        Spacer()
+                        Text(chapter.statusLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(chapter.summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                TextField("补充指令", text: $instruction, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
+
+                HStack {
+                    Button {
+                        Task { await run(kind: "chapter_briefing") }
+                    } label: {
+                        Label("Briefing", systemImage: "doc.badge.gearshape")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        Task { await run(kind: draft.isEmpty ? "chapter_draft" : "chapter_revision") }
+                    } label: {
+                        Label(draft.isEmpty ? "生成正文" : "修订正文", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Spacer()
+
+                    if isRunning {
+                        ProgressView()
+                    }
+                }
+                .disabled(isLoading || isRunning || isSaving)
+
+                TextEditor(text: $draft)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 420)
+                    .padding(8)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(.quaternary)
+                    }
+
+                HStack {
+                    Text("\(draft.count) 字符")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Label("保存", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isLoading || isRunning || isSaving)
+                }
+
+                if let savedPath {
+                    Text("保存路径：\(savedPath)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle(chapter.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if isLoading {
+                ProgressView()
+            }
+        }
+        .task {
+            await loadDraft()
+        }
+    }
+
+    private func loadDraft() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let artifact = try await appState.api.chapterDraft(projectSlug: project.slug, chapterId: chapter.id)
+            draft = artifact.content ?? ""
+            savedPath = artifact.path
+        } catch {
+            appState.lastError = error.localizedDescription
+        }
+    }
+
+    private func run(kind: String) async {
+        isRunning = true
+        defer { isRunning = false }
+        do {
+            let result = try await appState.api.runWritingTask(
+                projectSlug: project.slug,
+                kind: kind,
+                chapterId: chapter.id,
+                instruction: instruction.isEmpty ? nil : instruction
+            )
+            if kind != "chapter_briefing" {
+                draft = result.content
+            }
+            savedPath = result.path
+        } catch {
+            appState.lastError = error.localizedDescription
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let result = try await appState.api.saveChapterDraft(
+                projectSlug: project.slug,
+                chapterId: chapter.id,
+                content: draft
+            )
+            savedPath = result.path
+        } catch {
+            appState.lastError = error.localizedDescription
+        }
+    }
+}

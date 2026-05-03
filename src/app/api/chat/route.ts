@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { stream, type ModelProvider } from "@/lib/llm";
 import { buildContext, hasPhaseSummaries } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
+import { normalizePhase } from "@/lib/workflow";
 
 /**
  * Multi-model routing: each model does what it's best at.
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
         projectId: project.id,
         role: "human",
         content: message,
-        phase: project.phase ?? "conception",
+        phase: normalizePhase(project.phase),
       },
     });
   }
@@ -146,7 +147,7 @@ export async function POST(req: Request) {
     projectSlug,
     role,
     task: message,
-    phase: project.phase ?? undefined,
+    phase: normalizePhase(project.phase),
     skillGroup,
   });
 
@@ -165,7 +166,7 @@ export async function POST(req: Request) {
 
     // When phase summaries exist, only send recent messages to LLM
     // (summaries in system prompt cover earlier context)
-    const useFullHistory = !hasPhaseSummaries(projectSlug, project.phase ?? undefined);
+    const useFullHistory = !hasPhaseSummaries(projectSlug, normalizePhase(project.phase));
     const relevantHistory = useFullHistory ? history : history.slice(-40);
 
     // Convert history to LLM messages
@@ -227,7 +228,7 @@ export async function POST(req: Request) {
                   projectId: project.id,
                   role,
                   model: effectiveProvider,
-                  phase: project.phase ?? "conception",
+                  phase: normalizePhase(project.phase),
                   content: fullText,
                 },
               });

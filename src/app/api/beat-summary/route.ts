@@ -10,6 +10,8 @@ function summaryPath(slug: string, beatId: string): string {
 }
 
 function draftPath(slug: string, beatId: string): string {
+  const expansionPath = join(DATA_DIR, slug, "expansion", "chapters", `${beatId}.md`);
+  if (existsSync(expansionPath)) return expansionPath;
   return join(DATA_DIR, slug, "draft", `${beatId}.md`);
 }
 

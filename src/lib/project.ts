@@ -6,9 +6,14 @@ const DATA_DIR = join(process.cwd(), "data");
 
 const PROJECT_DIRS = [
   "meta",
+  "phases",
   "bible/characters",
   "structure/scenes",
-  "draft",
+  "scriptment",
+  "expansion/chapters",
+  "expansion/briefings",
+  "expansion/reviews",
+  "draft", // legacy compatibility
   "reviews/chapters",
   "continuity",
   "discussions",
@@ -53,6 +58,7 @@ export async function createProject(
     title,
     type,
     phase: "conception",
+    workflowVersion: 3,
     createdAt: new Date().toISOString(),
     ...config,
   };

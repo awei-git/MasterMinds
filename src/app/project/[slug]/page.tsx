@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import DraftWorkspace from "./DraftWorkspace";
 
 interface Message {
@@ -55,19 +56,20 @@ const FLOW_STEPS = [
   { key: "conception", label: "构思", agent: "idea", description: "打磨核心创意：冲突、主题、logline" },
   { key: "bible", label: "世界与角色", agent: "character", description: "建立角色档案、世界观、规则" },
   { key: "structure", label: "结构", agent: "architect", description: "节拍表、章节大纲、张力曲线" },
-  { key: "draft", label: "写作", agent: "writer", description: "逐章写作，多模型对比择优" },
-  { key: "review", label: "审稿", agent: "editor", description: "四关审稿，控频检查" },
-  { key: "final", label: "定稿", agent: "reader", description: "第一读者体验，最终打磨" },
+  { key: "scriptment", label: "全文速写", agent: "writer", description: "25-30%压缩叙事，结构审稿" },
+  { key: "expansion", label: "逐章扩写", agent: "writer", description: "逐章 briefing、写作、审稿、修改闭环" },
 ];
 
 // Which agents sit at the table for each phase
 const PHASE_PANEL: Record<string, string[]> = {
-  conception: ["idea", "architect"],
+  conception: ["idea", "architect", "character"],
   bible: ["character", "idea", "architect"],
-  structure: ["architect", "writer", "editor"],
-  draft: ["writer", "editor"],
-  review: ["editor", "reader", "writer"],
-  final: ["reader", "editor"],
+  structure: ["architect", "editor", "reader"],
+  scriptment: ["editor", "reader", "architect"],
+  expansion: ["character", "architect", "editor"],
+  draft: ["character", "architect", "editor"],
+  review: ["character", "architect", "editor"],
+  final: ["character", "architect", "editor"],
 };
 
 const WELCOME_PROMPTS = [
@@ -75,6 +77,11 @@ const WELCOME_PROMPTS = [
   "我想写一个发生在……的故事",
   "我对……这个主题很感兴趣",
 ];
+
+function normalizePhaseKey(phase?: string) {
+  if (phase === "draft" || phase === "review" || phase === "revision" || phase === "final") return "expansion";
+  return phase || "conception";
+}
 
 export default function ProjectPage() {
   const { slug: rawSlug } = useParams<{ slug: string }>();
@@ -100,6 +107,7 @@ export default function ProjectPage() {
   const [showPhasePrompt, setShowPhasePrompt] = useState(false);
   const [phaseSummaries, setPhaseSummaries] = useState<Record<string, string>>({});
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [writingTaskLoading, setWritingTaskLoading] = useState<string | null>(null);
   const [summaryModal, setSummaryModal] = useState<{ phase: string; text: string; editing: boolean } | null>(null);
   const [collapsedRounds, setCollapsedRounds] = useState<Set<string>>(new Set());
   const [roundSummaries, setRoundSummaries] = useState<Record<string, string>>({});
@@ -133,7 +141,7 @@ export default function ProjectPage() {
         const p = projects.find((p) => p.slug === slug);
         if (p) {
           setProjectTitle(p.title);
-          if (p.phase) setCurrentPhase(p.phase);
+          if (p.phase) setCurrentPhase(normalizePhaseKey(p.phase));
         }
       })
       .catch((err) => console.error("projects fetch error:", err));
@@ -250,17 +258,7 @@ export default function ProjectPage() {
     setCurrentPhase(phaseKey);
   }
 
-  async function loadPhaseSummary(phase: string) {
-    const res = await fetch(`/api/phases?projectSlug=${encodeURIComponent(slug)}&phase=${phase}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.content) {
-        setPhaseSummaries((prev) => ({ ...prev, [phase]: data.content }));
-      }
-    }
-  }
-
-  async function generatePhaseSummary(phase: string) {
+  const generatePhaseSummary = useCallback(async (phase: string) => {
     setSummaryLoading(true);
     try {
       const res = await fetch("/api/phases", {
@@ -280,7 +278,7 @@ export default function ProjectPage() {
     } finally {
       setSummaryLoading(false);
     }
-  }
+  }, [activeProvider, slug]);
 
   async function savePhaseSummary(phase: string, content: string) {
     await fetch("/api/phases", {
@@ -289,6 +287,35 @@ export default function ProjectPage() {
       body: JSON.stringify({ projectSlug: slug, phase, content }),
     });
     setPhaseSummaries((prev) => ({ ...prev, [phase]: content }));
+  }
+
+  async function runWritingTask(kind: string) {
+    if (writingTaskLoading) return;
+    setWritingTaskLoading(kind);
+    setError("");
+    try {
+      const res = await fetch("/api/writing-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectSlug: slug, kind, provider: activeProvider }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "写作任务失败");
+      }
+      setMessages((prev) => [...prev, {
+        id: `writing-task-${Date.now()}`,
+        role: kind.includes("beat") ? "architect" : kind.includes("bible") ? "character" : "writer",
+        model: activeProvider,
+        phase: currentPhase,
+        content: `【独立写作任务：${kind}】\n保存路径：${data.path}\n\n${data.content}`,
+        createdAt: new Date().toISOString(),
+      }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "写作任务失败");
+    } finally {
+      setWritingTaskLoading(null);
+    }
   }
 
   // Open summary modal: generate summary for current phase, then show for review
@@ -332,7 +359,7 @@ export default function ProjectPage() {
   }
 
   // Group messages into rounds: human message + subsequent agent replies
-  const rounds: Round[] = (() => {
+  const rounds: Round[] = useMemo(() => {
     const result: Round[] = [];
     let current: Round | null = null;
     for (const m of messages) {
@@ -361,7 +388,7 @@ export default function ProjectPage() {
     }
     if (current) result.push(current);
     return result;
-  })();
+  }, [messages]);
 
   // Toggle round collapse and generate summary if needed
   async function toggleRound(roundId: string, round: Round) {
@@ -402,7 +429,7 @@ export default function ProjectPage() {
       toCollapse.add(rounds[i].id);
     }
     setCollapsedRounds(toCollapse);
-  }, [messages.length]);
+  }, [rounds]);
 
   // During streaming: scroll to bottom. When streaming ends: scroll back to user's message.
   const wasStreaming = useRef(false);
@@ -419,12 +446,12 @@ export default function ProjectPage() {
         last?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 200);
       // Auto-generate phase summary only for planning phases (not during writing/review/final)
-      const skipSummaryPhases = ["draft", "review", "final"];
+      const skipSummaryPhases = ["expansion", "draft", "review", "final"];
       if (!skipSummaryPhases.includes(currentPhase)) {
         generatePhaseSummary(currentPhase);
       }
     }
-  }, [streaming, streamText]);
+  }, [currentPhase, generatePhaseSummary, streaming, streamText]);
 
   // Stream one agent's response, return the text
   async function streamOneAgent(role: string, message: string, skipSaveHuman = false, skipSaveAgent = false, cleanContext = false, skillGroup?: string): Promise<string> {
@@ -718,10 +745,20 @@ ${writerDisplay}`;
   function getFollowUpPrompt(phase: string, role: string, previousRoles: string[]): string {
     const category = ROLE_META[role]?.category ?? role;
 
-    if (phase === "draft" || phase === "review") {
+    if (phase === "scriptment" && role === "editor") {
+      return "（请按 Phase 4 的结构审稿三维度发言：信息经济、场景功能、跨场景重复。不要改写文本，只给决策级意见。）";
+    }
+
+    if (phase === "expansion" || phase === "draft" || phase === "review") {
+      if (role === "character") {
+        return "（Pre/Post 章节圆桌：请给出角色声音DNA、关系状态、不要重复的细节，或验证当前章的声音一致性。每次不超过3点。）";
+      }
+      if (role === "architect") {
+        return "（Pre/Post 章节圆桌：请给出本章结构功能、上下章衔接、scriptment对应段落，或检查是否偏离骨架。每次不超过3点。）";
+      }
       // editor reviews what writer wrote
       if (role === "editor") {
-        return "（妙笔刚完成了写作/改稿。请按你的审稿流程审稿。注意：必须先列出【守住清单】——标记写得好的段落/句子，这些改稿时不可删改。然后再列问题。如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]。）";
+        return "（Post-Review 圆桌：请检查骨架对齐、语言问题、字数和是否需要返修。先列【守住清单】，再列P0/P1/P2。如果可进入下一章，在最后单独一行写 [APPROVED]。）";
       }
       // writer revises based on editor's review
       if (role === "writer" && previousRoles.includes("editor")) {
@@ -848,7 +885,7 @@ ${writerDisplay}`;
     }
     let sawPhaseComplete = false;
     const previousRoles: string[] = [];
-    const isDraftLoop = currentPhase === "draft" || currentPhase === "review";
+    const isDraftLoop = currentPhase === "expansion" || currentPhase === "draft" || currentPhase === "review";
 
     try {
       // --- Standard panel pass (all phases) ---
@@ -1246,9 +1283,11 @@ ${docText}
     conception: "构思",
     bible: "角色",
     structure: "结构",
-    draft: "写作",
-    review: "审稿",
-    final: "定稿",
+    scriptment: "速写",
+    expansion: "扩写",
+    draft: "扩写",
+    review: "扩写",
+    final: "扩写",
   };
 
   return (
@@ -1257,9 +1296,9 @@ ${docText}
       <aside className="w-[280px] shrink-0 border-r border-border/40 bg-background-warm flex flex-col hidden lg:flex">
         {/* Logo / Home */}
         <div className="px-4 py-4">
-          <a href="/" className="flex items-center gap-2 text-muted/50 hover:text-foreground transition-colors">
+          <Link href="/" className="flex items-center gap-2 text-muted/50 hover:text-foreground transition-colors">
             <span className="font-brush text-xl text-gradient">神仙会</span>
-          </a>
+          </Link>
         </div>
 
         <div className="h-px bg-border/30" />
@@ -1454,8 +1493,8 @@ ${docText}
           <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border-light/40 to-transparent" />
         </header>
 
-        {currentPhase === "draft" ? (
-          <DraftWorkspace slug={slug} activeProvider={activeProvider} onAdvancePhase={() => setPhase("review")} />
+        {currentPhase === "expansion" ? (
+          <DraftWorkspace slug={slug} activeProvider={activeProvider} />
         ) : (
           <>
           {/* Messages */}
@@ -2084,7 +2123,7 @@ ${docText}
         </div>
 
         {/* Right: Sidebar — tools */}
-        <aside className={`${currentPhase === "draft" || currentPhase === "review" ? "hidden" : "w-[640px]"} shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto lg:block`}>
+        <aside className={`${currentPhase === "expansion" ? "hidden" : "w-[640px]"} shrink-0 border-l border-border/40 bg-background-warm overflow-y-auto lg:block`}>
           <div className="p-5 space-y-6">
             {/* Roundtable members */}
             <div>
@@ -2123,6 +2162,46 @@ ${docText}
               <p className="text-[11px] text-foreground/25 mt-2.5">
                 你说话后，成员轮流发言并互相讨论。你的纠正会被记住。
               </p>
+            </div>
+
+            {/* Independent Writing Tasks */}
+            <div>
+              <h3 className="text-xs text-foreground/40 font-medium tracking-wide mb-3">
+                独立写作任务
+              </h3>
+              <div className="space-y-2">
+                {[
+                  ...(currentPhase === "bible" ? [
+                    { kind: "bible_draft", label: "起草 Bible", desc: "角色档案、世界规则、关系张力" },
+                    { kind: "bible_revision", label: "按纪要修 Bible", desc: "基于圆桌纪要独立修改" },
+                  ] : []),
+                  ...(currentPhase === "structure" ? [
+                    { kind: "beat_sheet", label: "生成 Beat Sheet", desc: "章节大纲、张力曲线、因果链" },
+                    { kind: "beat_revision", label: "按纪要修结构", desc: "保留承重墙并修正中段" },
+                  ] : []),
+                  ...(currentPhase === "scriptment" ? [
+                    { kind: "scriptment", label: "生成 Scriptment", desc: "25-30% 压缩版完整叙事" },
+                    { kind: "scriptment_revision", label: "按审稿修 Scriptment", desc: "信息经济、场景功能、跨场景重复" },
+                  ] : []),
+                ].map((task) => (
+                  <button
+                    key={task.kind}
+                    onClick={() => runWritingTask(task.kind)}
+                    disabled={!!writingTaskLoading}
+                    className="w-full glass rounded-xl px-4 py-3 text-left hover:bg-surface-hover/50 disabled:opacity-50 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-foreground/70">
+                      {writingTaskLoading === task.kind ? "执行中…" : task.label}
+                    </span>
+                    <span className="block text-[11px] text-foreground/30 mt-0.5">{task.desc}</span>
+                  </button>
+                ))}
+                {!["bible", "structure", "scriptment"].includes(currentPhase) && (
+                  <p className="text-[11px] text-foreground/25 leading-relaxed">
+                    构思阶段只做圆桌决策；逐章扩写阶段请进入扩写工作台执行 briefing、写作和审稿循环。
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Phase Summaries */}

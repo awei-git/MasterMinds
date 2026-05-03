@@ -2,6 +2,16 @@ import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { loadRole, type RoleName } from "./roles";
 import type { LLMMessage } from "../llm";
+import { loadLedger, formatLedgerForPrompt } from "@/lib/ledger";
+import {
+  EXPANSION_PROTOCOL,
+  PHASE_LABELS,
+  PHASE_ORDER,
+  ROUND_TABLE_PROTOCOL,
+  SCRIPTMENT_REVIEW_PROTOCOL,
+  normalizePhase,
+  phaseSystemPrompt,
+} from "@/lib/workflow";
 
 const DATA_DIR = join(process.cwd(), "data");
 const AGENTS_DIR = join(process.cwd(), "agents");
@@ -64,9 +74,9 @@ function loadProjectMemory(slug: string): string {
 }
 
 export function hasPhaseSummaries(slug: string, currentPhase?: string): boolean {
-  const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
   const dir = join(projectDir(slug), "phases");
-  const currentIdx = currentPhase ? PHASE_ORDER.indexOf(currentPhase) : PHASE_ORDER.length;
+  const phase = currentPhase ? normalizePhase(currentPhase) : undefined;
+  const currentIdx = phase ? PHASE_ORDER.indexOf(phase) : PHASE_ORDER.length;
   for (let i = 0; i < currentIdx; i++) {
     if (existsSync(join(dir, `${PHASE_ORDER[i]}.md`))) return true;
   }
@@ -81,8 +91,6 @@ function extractConstraints(content: string): string {
   const lines = content.split("\n");
   const result: string[] = [];
   let inConfirmedSection = false;
-  let currentHeading = "";
-
   for (const line of lines) {
     // Track section headings
     if (line.startsWith("## ") || line.startsWith("### ")) {
@@ -90,7 +98,6 @@ function extractConstraints(content: string): string {
       // "已确定" or "已确定的内容" sections
       if (heading.includes("已确定")) {
         inConfirmedSection = true;
-        currentHeading = heading;
         result.push(heading);
         continue;
       }
@@ -118,16 +125,12 @@ function extractConstraints(content: string): string {
 }
 
 function loadPhaseSummaries(slug: string, currentPhase?: string, compact?: boolean): string {
-  const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
-  const PHASE_LABELS: Record<string, string> = {
-    conception: "构思", bible: "世界与角色", structure: "结构",
-    draft: "写作", review: "审稿", final: "定稿",
-  };
   const dir = join(projectDir(slug), "phases");
   const parts: string[] = [];
 
   // Load all completed phase summaries (before current phase)
-  const currentIdx = currentPhase ? PHASE_ORDER.indexOf(currentPhase) : PHASE_ORDER.length;
+  const normalized = currentPhase ? normalizePhase(currentPhase) : undefined;
+  const currentIdx = normalized ? PHASE_ORDER.indexOf(normalized) : PHASE_ORDER.length;
   for (let i = 0; i < currentIdx; i++) {
     const phase = PHASE_ORDER[i];
     const content = readIfExists(join(dir, `${phase}.md`));
@@ -147,6 +150,7 @@ function loadPhaseSummaries(slug: string, currentPhase?: string, compact?: boole
 - 构思阶段确定的主题、核心冲突、logline → 不可偏离
 - 世界与角色阶段确定的设定、人物、规则 → 不可矛盾
 - 结构阶段确定的节拍、大纲 → 不可跳过或重排
+- 全文速写阶段确定的场景功能、信息分配、关键意象 → 扩写时不可绕开
 
 如需修改已锁定的决策，必须明确告知创作者并获得确认，不能静默偏离。
 
@@ -272,11 +276,13 @@ export function loadSkills(role: RoleName, skillGroup?: string): string {
 // --- Draft progress tracking ---
 
 /**
- * Scan draft/ directory to build a progress report for the agent.
- * Tells the agent which chapters/beats are done and how many chars each.
+ * Scan expansion/chapters and legacy draft/ directories to build a progress report.
+ * Tells the agent which chapters are done and how many chars each.
  */
 function loadDraftProgress(slug: string): string {
-  const dir = join(projectDir(slug), "draft");
+  const expansionDir = join(projectDir(slug), "expansion", "chapters");
+  const legacyDir = join(projectDir(slug), "draft");
+  const dir = existsSync(expansionDir) ? expansionDir : legacyDir;
   if (!existsSync(dir)) return "";
 
   const files = readdirSync(dir)
@@ -307,8 +313,8 @@ function loadDraftProgress(slug: string): string {
     totalChars += chapterTotal;
     progress += `${beatStr}  — ${chapter} 共${chapterTotal}字\n`;
   }
-  progress += `\n共 ${sections.length} 节，${totalChars} 字已完成。\n`;
-  progress += `\n**重要：不要重写已完成的章节。根据用户指令继续写下一个章节/beat。**\n`;
+  progress += `\n共 ${sections.length} 个章节/片段，${totalChars} 字已完成。\n`;
+  progress += `\n**重要：不要重写已完成章节。Phase 5 的写作单位是章，不是 beat；根据用户指令继续下一章或修改当前章。**\n`;
 
   return progress;
 }
@@ -318,7 +324,9 @@ function loadDraftProgress(slug: string): string {
  * so the writer can maintain continuity with what came before.
  */
 function loadRecentDraft(slug: string, maxChars = 3000): string {
-  const dir = join(projectDir(slug), "draft");
+  const expansionDir = join(projectDir(slug), "expansion", "chapters");
+  const legacyDir = join(projectDir(slug), "draft");
+  const dir = existsSync(expansionDir) ? expansionDir : legacyDir;
   if (!existsSync(dir)) return "";
 
   const files = readdirSync(dir)
@@ -340,6 +348,11 @@ function loadRecentDraft(slug: string, maxChars = 3000): string {
 
   if (parts.length === 0) return "";
   return "# 最近写完的内容（供衔接参考）\n\n" + parts.join("\n\n---\n\n");
+}
+
+function loadScriptment(slug: string): string {
+  const content = readIfExists(join(projectDir(slug), "scriptment", "scriptment.md"));
+  return content ? "# Scriptment 全文（扩写骨架，硬约束）\n\n" + content : "";
 }
 
 function loadFramework(slug: string): string {
@@ -411,14 +424,17 @@ export function buildContext(req: ContextRequest): {
   const agentNotes = loadAgentNotes(req.projectSlug, req.role);
   if (agentNotes) systemParts.push("# My Notes\n" + agentNotes);
 
+  systemParts.push(ROUND_TABLE_PROTOCOL);
+
   // Load summaries from completed phases
-  // In draft/review/final phases, use compact mode by default (only ✓ items)
-  const useCompact = req.compact ?? ["draft", "review", "final"].includes(req.phase ?? "");
+  // In scriptment/expansion phases, use compact mode by default (only ✓ items)
+  const normalizedPhase = req.phase ? normalizePhase(req.phase) : undefined;
+  const useCompact = req.compact ?? ["scriptment", "expansion"].includes(normalizedPhase ?? "");
   const phaseSummaries = loadPhaseSummaries(req.projectSlug, req.phase, useCompact);
   if (phaseSummaries) systemParts.push(phaseSummaries);
 
   // Draft progress: tell the agent what's already been written
-  if (req.phase === "draft" || req.phase === "review") {
+  if (normalizedPhase === "expansion") {
     const draftProgress = loadDraftProgress(req.projectSlug);
     if (draftProgress) systemParts.push(draftProgress);
   }
@@ -437,28 +453,9 @@ export function buildContext(req: ContextRequest): {
   }
 
   // Phase-aware coordination
-  if (req.phase) {
-    const PHASE_MAP: Record<string, { label: string; next?: string; nextLabel?: string; nextAgent?: string }> = {
-      conception: { label: "构思", next: "bible", nextLabel: "世界与角色", nextAgent: "画皮（角色agent）" },
-      bible: { label: "世界与角色", next: "structure", nextLabel: "结构", nextAgent: "鲁班（结构agent）" },
-      structure: { label: "结构", next: "draft", nextLabel: "写作", nextAgent: "妙笔（写手agent）" },
-      draft: { label: "写作", next: "review", nextLabel: "审稿", nextAgent: "铁面（编辑agent）" },
-      review: { label: "审稿", next: "final", nextLabel: "定稿", nextAgent: "知音（读者agent）" },
-      final: { label: "定稿" },
-    };
-    const phaseInfo = PHASE_MAP[req.phase];
-    if (phaseInfo) {
-      let phasePrompt = `# 当前阶段：${phaseInfo.label}\n\n`;
-      phasePrompt += `你正在「${phaseInfo.label}」阶段工作。\n\n`;
-      if (phaseInfo.next) {
-        phasePrompt += `当你觉得当前阶段已经足够扎实，可以提醒创作者考虑进入「${phaseInfo.nextLabel}」阶段。\n`;
-        phasePrompt += `但**不要**自动推进——阶段切换完全由创作者决定。不要过早建议推进。\n`;
-      } else {
-        phasePrompt += `这是最终阶段。完成后输出最终成果。\n`;
-      }
-      systemParts.push(phasePrompt);
-    }
-  }
+  if (req.phase) systemParts.push(phaseSystemPrompt(req.phase));
+  if (normalizedPhase === "scriptment") systemParts.push(SCRIPTMENT_REVIEW_PROTOCOL);
+  if (normalizedPhase === "expansion") systemParts.push(EXPANSION_PROTOCOL);
 
   // Task-specific context
   const contextParts: string[] = [];
@@ -495,8 +492,10 @@ export function buildContext(req: ContextRequest): {
   }
 
   // In draft phase, inject recent draft content for continuity
-  if ((req.phase === "draft" || req.phase === "review") &&
+  if (normalizedPhase === "expansion" &&
       (req.role === "writer" || req.role === "editor" || req.role === "continuity")) {
+    const scriptment = loadScriptment(req.projectSlug);
+    if (scriptment) contextParts.push(scriptment);
     const recentDraft = loadRecentDraft(req.projectSlug);
     if (recentDraft) contextParts.push(recentDraft);
   }
@@ -521,8 +520,8 @@ export function buildContext(req: ContextRequest): {
 export interface WritingContextRequest {
   projectSlug: string;
   role: RoleName;
-  beatId: string;       // e.g. "阳三.1"
-  beatInstruction: string; // what this beat should contain (from beat sheet)
+  beatId: string;       // legacy beat id or chapter id
+  beatInstruction: string; // what this chapter/beat should contain
   userNote?: string;     // optional user instruction ("对话太假", "节奏太慢")
   skillGroup?: string;
 }
@@ -549,8 +548,10 @@ export function buildWritingContext(req: WritingContextRequest): {
     }
   }
 
+  const scriptment = loadScriptment(req.projectSlug);
+  if (scriptment) systemParts.push(scriptment);
+
   // 2. Continuity Ledger
-  const { loadLedger, formatLedgerForPrompt } = require("@/lib/ledger");
   const ledger = loadLedger(req.projectSlug);
   const ledgerText = formatLedgerForPrompt(ledger);
   if (ledgerText) systemParts.push(ledgerText);
@@ -568,7 +569,7 @@ export function buildWritingContext(req: WritingContextRequest): {
   // Build user message with beat instruction + recent draft tail
   const messageParts: string[] = [];
 
-  messageParts.push(`请写 beat: **${req.beatId}**\n\n## 节拍指令\n${req.beatInstruction}`);
+  messageParts.push(`请写章节/片段: **${req.beatId}**\n\n## 写作指令\n${req.beatInstruction}`);
 
   if (req.userNote) {
     messageParts.push(`## 创作者指令\n${req.userNote}`);
@@ -580,7 +581,7 @@ export function buildWritingContext(req: WritingContextRequest): {
     messageParts.push(recentDraft);
   }
 
-  messageParts.push("直接输出正文。不要加标题、自检报告、字数统计或任何说明文字。");
+  messageParts.push("直接输出正文。不要加自检报告、字数统计或任何说明文字。Phase 5 默认写作单位是章；除非创作者明确要求，不要把一章拆成多个 beat 文件。");
 
   return {
     system: systemParts.join("\n\n---\n\n"),

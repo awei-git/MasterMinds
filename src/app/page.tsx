@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 interface Project {
   id: string;
@@ -18,20 +17,24 @@ const PHASE_LABELS: Record<string, string> = {
   conception: "构思",
   bible: "世界与角色",
   structure: "结构",
-  draft: "写作",
-  review: "审稿",
-  revision: "修改",
-  final: "定稿",
+  scriptment: "全文速写",
+  expansion: "逐章扩写",
+  draft: "逐章扩写",
+  review: "逐章扩写",
+  revision: "逐章扩写",
+  final: "逐章扩写",
 };
 
 const PHASE_COLORS: Record<string, string> = {
   conception: "bg-teal-500/10 text-teal-300/80 border-teal-500/15",
   bible: "bg-slate-500/10 text-slate-300 border-slate-500/15",
   structure: "bg-cyan-500/10 text-cyan-300/80 border-cyan-500/15",
+  scriptment: "bg-sky-500/10 text-sky-300/80 border-sky-500/15",
+  expansion: "bg-emerald-500/10 text-emerald-300/80 border-emerald-500/15",
   draft: "bg-emerald-500/10 text-emerald-300/80 border-emerald-500/15",
-  review: "bg-sky-500/10 text-sky-300/80 border-sky-500/15",
-  revision: "bg-zinc-500/10 text-zinc-300 border-zinc-500/15",
-  final: "bg-teal-500/10 text-teal-200/80 border-teal-500/15",
+  review: "bg-emerald-500/10 text-emerald-300/80 border-emerald-500/15",
+  revision: "bg-emerald-500/10 text-emerald-300/80 border-emerald-500/15",
+  final: "bg-emerald-500/10 text-emerald-300/80 border-emerald-500/15",
 };
 
 const AGENTS = [
@@ -48,9 +51,8 @@ const FLOW = [
   { label: "构思", desc: "冲突 · 主题 · Logline", icon: "◇" },
   { label: "世界与角色", desc: "角色档案 · 世界观", icon: "◈" },
   { label: "结构", desc: "节拍表 · 张力曲线", icon: "▣" },
-  { label: "写作", desc: "多模型同写 · 择优", icon: "▤" },
-  { label: "审稿", desc: "四关审查 · 控频", icon: "◉" },
-  { label: "定稿", desc: "读者验证 · 打磨", icon: "◎" },
+  { label: "全文速写", desc: "Scriptment · 信息经济", icon: "▤" },
+  { label: "逐章扩写", desc: "Briefing · 写作 · 审稿", icon: "◎" },
 ];
 
 export default function Home() {
@@ -97,7 +99,7 @@ export default function Home() {
       setShowNew(false);
       setTitle("");
       router.push(`/project/${data.slug}`);
-    } catch (err) {
+    } catch {
       setCreateError("网络错误，请重试");
     }
   }

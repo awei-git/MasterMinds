@@ -2,18 +2,12 @@
  * App status — writes data/status.json for Mira to read via registry.
  * Each app manages its own output. Mira reads from here, never the other way.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, statSync } from "fs";
+import { existsSync, writeFileSync, mkdirSync, renameSync, statSync } from "fs";
 import { join } from "path";
 import { prisma } from "./db";
+import { PHASES, normalizePhase } from "./workflow";
 
-const FLOW_STEPS = [
-  { key: "conception", label: "构思" },
-  { key: "bible", label: "世界与角色" },
-  { key: "structure", label: "结构" },
-  { key: "draft", label: "写作" },
-  { key: "review", label: "审稿" },
-  { key: "final", label: "定稿" },
-];
+const FLOW_STEPS = PHASES.map((phase) => ({ key: phase.key, label: phase.label }));
 
 const DATA_DIR = join(process.cwd(), "data");
 const STATUS_PATH = join(DATA_DIR, "status.json");
@@ -40,7 +34,8 @@ export async function syncAppStatus() {
     const outputs: Record<string, unknown>[] = [];
 
     for (const p of projects) {
-      const phaseIdx = FLOW_STEPS.findIndex((s) => s.key === p.phase);
+      const currentPhase = normalizePhase(p.phase);
+      const phaseIdx = FLOW_STEPS.findIndex((s) => s.key === currentPhase);
       const phaseLabel = FLOW_STEPS[phaseIdx]?.label ?? p.phase;
 
       const completedPhases: string[] = [];

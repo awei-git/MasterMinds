@@ -1,11 +1,21 @@
 import { NextRequest } from "next/server";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 
 const DATA_DIR = join(process.cwd(), "data");
 
 function draftsDir(slug: string): string {
+  return join(DATA_DIR, slug, "expansion", "chapters");
+}
+
+function legacyDraftsDir(slug: string): string {
   return join(DATA_DIR, slug, "draft");
+}
+
+function existingDraftsDir(slug: string): string {
+  const dir = draftsDir(slug);
+  if (existsSync(dir)) return dir;
+  return legacyDraftsDir(slug);
 }
 
 // GET — list all saved draft sections with their content
@@ -15,7 +25,7 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "projectSlug required" }, { status: 400 });
   }
 
-  const dir = draftsDir(projectSlug);
+  const dir = existingDraftsDir(projectSlug);
   if (!existsSync(dir)) {
     return Response.json({ sections: [] });
   }
@@ -29,12 +39,22 @@ export async function GET(req: NextRequest) {
       const content = readFileSync(beatPath, "utf-8");
       return Response.json({ content, charCount: content.length });
     }
+    const legacyBeatPath = join(legacyDraftsDir(projectSlug), `${sectionId}.md`);
+    if (existsSync(legacyBeatPath)) {
+      const content = readFileSync(legacyBeatPath, "utf-8");
+      return Response.json({ content, charCount: content.length, legacy: true });
+    }
     // Try chapter file (e.g. sectionId="阳一.1" → chapter="阳一")
     const chapter = sectionId.split(".")[0];
     const chapterPath = join(dir, `${chapter}.md`);
     if (existsSync(chapterPath)) {
       const content = readFileSync(chapterPath, "utf-8");
       return Response.json({ content, charCount: content.length, isChapter: true });
+    }
+    const legacyChapterPath = join(legacyDraftsDir(projectSlug), `${chapter}.md`);
+    if (existsSync(legacyChapterPath)) {
+      const content = readFileSync(legacyChapterPath, "utf-8");
+      return Response.json({ content, charCount: content.length, isChapter: true, legacy: true });
     }
     return Response.json({ content: null });
   }
@@ -90,9 +110,11 @@ export async function DELETE(req: NextRequest) {
     }
 
     const filePath = join(draftsDir(projectSlug), `${sectionId}.md`);
+    const legacyPath = join(legacyDraftsDir(projectSlug), `${sectionId}.md`);
     if (existsSync(filePath)) {
-      const { unlinkSync } = require("fs");
       unlinkSync(filePath);
+    } else if (existsSync(legacyPath)) {
+      unlinkSync(legacyPath);
     }
 
     return Response.json({ ok: true });

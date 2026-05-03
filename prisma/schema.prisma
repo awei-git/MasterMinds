@@ -14,7 +14,7 @@ model Project {
   slug      String   @unique
   title     String
   type      String   // novel, screenplay
-  phase     String   @default("conception") // conception, bible, structure, draft, review, revision, final
+  phase     String   @default("conception") // conception, bible, structure, scriptment, expansion
   status    String   @default("active") // active, paused, completed, archived
   config    String   @default("{}") // JSON: language, pov, tense, target_words, etc.
   createdAt DateTime @default(now())
@@ -67,7 +67,7 @@ model Message {
   project      Project     @relation(fields: [projectId], references: [id])
   discussionId String?
   discussion   Discussion? @relation(fields: [discussionId], references: [id])
-  role         String      // "human", "architect", "character", "writer", "editor", "reader", "continuity", "worldbuilder", "idea"
+  role         String      // "human", "architect", "character", "writer", "editor", "reader", "continuity", "idea", "chronicler"
   model        String?     // "claude", "gpt", "deepseek" — which LLM generated this
   phase        String?     // which phase this message was created in
   content      String

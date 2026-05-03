@@ -27,6 +27,29 @@ function summariesDir(slug: string): string {
   return join(DATA_DIR, slug, "draft-summaries");
 }
 
+function toChapterUnits(beats: Beat[]): Beat[] {
+  const grouped = new Map<string, Beat[]>();
+  for (const beat of beats) {
+    const arr = grouped.get(beat.chapter) ?? [];
+    arr.push(beat);
+    grouped.set(beat.chapter, arr);
+  }
+
+  return [...grouped.entries()].map(([chapter, chapterBeats]) => ({
+    id: chapter,
+    chapter,
+    title: chapter,
+    summary: chapterBeats.map((beat) => `${beat.id}: ${beat.title} — ${beat.summary}`).join("\n"),
+    key: chapterBeats.some((beat) => beat.key),
+    wordBudget: chapterBeats.reduce((sum, beat) => sum + (beat.wordBudget || 0), 0),
+    status: chapterBeats.every((beat) => beat.status === "done")
+      ? "done"
+      : chapterBeats.some((beat) => beat.status !== "blank")
+      ? "writing"
+      : "blank",
+  }));
+}
+
 // Cache chapter file contents so we don't re-read per beat
 function getChapterWordCounts(slug: string, chapters: string[]): Record<string, number> {
   const draftDir = draftsDir(slug);
@@ -95,6 +118,7 @@ function enrichBeats(beats: Beat[], slug: string): Beat[] {
 // GET — list all beats with status
 export async function GET(req: NextRequest) {
   const projectSlug = req.nextUrl.searchParams.get("projectSlug");
+  const unit = req.nextUrl.searchParams.get("unit");
   if (!projectSlug) {
     return Response.json({ error: "projectSlug required" }, { status: 400 });
   }
@@ -107,7 +131,8 @@ export async function GET(req: NextRequest) {
   try {
     const raw = readFileSync(path, "utf-8");
     const beats: Beat[] = JSON.parse(raw);
-    const enriched = enrichBeats(beats, projectSlug);
+    const source = unit === "chapter" ? toChapterUnits(beats) : beats;
+    const enriched = enrichBeats(source, projectSlug);
     return Response.json({ beats: enriched });
   } catch (err) {
     console.error("beats read error:", err);
@@ -162,7 +187,15 @@ export async function PATCH(req: NextRequest) {
     const beats: Beat[] = JSON.parse(readFileSync(path, "utf-8"));
     const idx = beats.findIndex(b => b.id === beatId);
     if (idx < 0) {
-      return Response.json({ error: `beat ${beatId} not found` }, { status: 404 });
+      const chapterMatches = beats.filter((b) => b.chapter === beatId);
+      if (chapterMatches.length === 0) {
+        return Response.json({ error: `beat ${beatId} not found` }, { status: 404 });
+      }
+      const updated = beats.map((beat) =>
+        beat.chapter === beatId ? { ...beat, ...updates } : beat
+      );
+      writeFileSync(path, JSON.stringify(updated, null, 2), "utf-8");
+      return Response.json({ ok: true, beat: toChapterUnits(updated).find((beat) => beat.id === beatId) });
     }
 
     beats[idx] = { ...beats[idx], ...updates };

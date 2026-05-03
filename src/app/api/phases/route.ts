@@ -4,6 +4,7 @@ import { complete, type ModelProvider } from "@/lib/llm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { syncAppStatus } from "@/lib/status";
+import { PHASE_LABELS, PHASE_ORDER, normalizePhase, phaseDefinition } from "@/lib/workflow";
 
 const DATA_DIR = join(process.cwd(), "data");
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "projectSlug and phase required" }, { status: 400 });
   }
 
-  const path = summaryPath(projectSlug, phase);
+  const path = summaryPath(projectSlug, normalizePhase(phase));
   if (!existsSync(path)) {
     return Response.json({ content: null });
   }
@@ -32,17 +33,6 @@ export async function GET(req: NextRequest) {
   const content = readFileSync(path, "utf-8");
   return Response.json({ content });
 }
-
-const PHASE_ORDER = ["conception", "bible", "structure", "draft", "review", "final"];
-
-const PHASE_LABELS: Record<string, string> = {
-  conception: "构思",
-  bible: "世界与角色",
-  structure: "结构",
-  draft: "写作",
-  review: "审稿",
-  final: "定稿",
-};
 
 const ROLE_LABELS: Record<string, string> = {
   human: "创作者",
@@ -53,6 +43,7 @@ const ROLE_LABELS: Record<string, string> = {
   editor: "铁面（编辑）",
   reader: "知音（读者）",
   continuity: "掌故（连续性）",
+  chronicler: "史官（纪要）",
   context: "导入资料",
 };
 
@@ -72,15 +63,16 @@ function compactMessage(role: string, content: string): string {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { projectSlug, phase, provider = "deepseek" } = body as {
+    const { projectSlug, phase: rawPhase, provider = "deepseek" } = body as {
       projectSlug: string;
       phase: string;
       provider?: ModelProvider;
     };
 
-    if (!projectSlug || !phase) {
+    if (!projectSlug || !rawPhase) {
       return Response.json({ error: "projectSlug and phase required" }, { status: 400 });
     }
+    const phase = normalizePhase(rawPhase);
 
     const project = await prisma.project.findUnique({
       where: { slug: projectSlug },
@@ -140,6 +132,7 @@ export async function POST(req: Request) {
     }
 
     const phaseLabel = PHASE_LABELS[phase] ?? phase;
+    const phaseDef = phaseDefinition(phase);
 
     const systemPrompt = `你是一个创意项目的记录员。你的任务是将一段多人讨论整理成一份详细、准确、结构化的阶段总结文档。
 
@@ -150,6 +143,8 @@ export async function POST(req: Request) {
 4. **准确性**：不要添加讨论中没有的内容，不要臆测
 5. **可操作性**：标注已确定的内容（✓）和待定/有争议的内容（?）
 6. **去重**：被否决的方案只需简要记录"否决了X方案"，不要展开细节
+7. **讨论/写作分离**：圆桌纪要只记录决策；独立写作任务成果单独归档，不要把散文正文混进会议纪要
+8. **阶段目标**：${phaseDef.goal}
 
 输出格式：
 # ${phaseLabel}阶段总结
@@ -167,7 +162,10 @@ export async function POST(req: Request) {
 （有分歧或尚未决定的问题）
 
 ## 下一阶段需要关注的
-（对后续工作的建议）`;
+（对后续工作的建议）
+
+## 独立写作任务
+（本阶段需要执行或已经执行的写作任务、产物路径、是否等待创作者确认）`;
 
     const priorStr = priorContext.length > 0
       ? `\n\n---\n以下是前置阶段的总结，供参考（已确定的内容不需重复）：\n\n${priorContext.join("\n\n")}`
@@ -203,15 +201,16 @@ export async function POST(req: Request) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { projectSlug, phase, content } = body as {
+    const { projectSlug, phase: rawPhase, content } = body as {
       projectSlug: string;
       phase: string;
       content: string;
     };
 
-    if (!projectSlug || !phase || content === undefined) {
+    if (!projectSlug || !rawPhase || content === undefined) {
       return Response.json({ error: "projectSlug, phase, and content required" }, { status: 400 });
     }
+    const phase = normalizePhase(rawPhase);
 
     const dir = phasesDir(projectSlug);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });

@@ -5,10 +5,11 @@
  *       writer revises → re-review → loop until P0 resolved or maxRounds.
  */
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, readdirSync } from "fs";
 import { join } from "path";
-import { complete, stream, type ModelProvider, type StreamCallbacks } from "@/lib/llm";
+import { stream, type ModelProvider } from "@/lib/llm";
 import { loadRole } from "@/lib/agents/roles";
+import type { RoleName } from "@/lib/agents/roles";
 import { loadSkills } from "@/lib/agents/context";
 
 const DATA_DIR = join(process.cwd(), "data");
@@ -160,8 +161,9 @@ P2（建议补充细节以避免歧义）：
 // ---------------------------------------------------------------------------
 
 function buildReviewSystem(role: string): string {
-  const parts: string[] = [loadRole(role as any).systemPrompt];
-  const skills = loadSkills(role as any);
+  const roleName = role as RoleName;
+  const parts: string[] = [loadRole(roleName).systemPrompt];
+  const skills = loadSkills(roleName);
   if (skills) parts.push(skills);
 
   // Add review-mode prompt
@@ -189,10 +191,11 @@ function readIfExists(path: string): string | null {
 // ---------------------------------------------------------------------------
 
 export function loadFullDraft(projectSlug: string): string {
-  const draftDir = join(DATA_DIR, projectSlug, "draft");
+  const expansionDir = join(DATA_DIR, projectSlug, "expansion", "chapters");
+  const legacyDir = join(DATA_DIR, projectSlug, "draft");
+  const draftDir = existsSync(expansionDir) ? expansionDir : legacyDir;
   if (!existsSync(draftDir)) return "";
 
-  const { readdirSync } = require("fs");
   const files = readdirSync(draftDir)
     .filter((f: string) => f.endsWith(".md"))
     .sort();
@@ -213,7 +216,6 @@ function loadBibleContext(projectSlug: string): string {
   const parts: string[] = [];
   const charDir = join(bibleDir, "characters");
   if (existsSync(charDir)) {
-    const { readdirSync } = require("fs");
     for (const f of readdirSync(charDir)) {
       if (f.endsWith(".md")) {
         parts.push(readFileSync(join(charDir, f), "utf-8"));
@@ -398,12 +400,13 @@ export function loadReviewRound(projectSlug: string, round: number): ReviewRound
 // ---------------------------------------------------------------------------
 
 /**
- * Load individual chapter files from draft directory.
+ * Load individual chapter files from expansion/chapters, falling back to legacy draft.
  */
 export function loadChapters(projectSlug: string): Array<{ name: string; content: string; path: string }> {
-  const draftDir = join(DATA_DIR, projectSlug, "draft");
+  const expansionDir = join(DATA_DIR, projectSlug, "expansion", "chapters");
+  const legacyDir = join(DATA_DIR, projectSlug, "draft");
+  const draftDir = existsSync(expansionDir) ? expansionDir : legacyDir;
   if (!existsSync(draftDir)) return [];
-  const { readdirSync } = require("fs");
   return readdirSync(draftDir)
     .filter((f: string) => f.endsWith(".md"))
     .sort()

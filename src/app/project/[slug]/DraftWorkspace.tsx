@@ -28,7 +28,7 @@ interface DraftWorkspaceProps {
   onAdvancePhase?: () => void;
 }
 
-// Beat status display
+// Chapter status display
 const STATUS_LABEL: Record<string, { icon: string; color: string; text: string }> = {
   blank: { icon: "○", color: "text-white/25", text: "待写" },
   writing: { icon: "◐", color: "text-amber-400", text: "初稿" },
@@ -60,7 +60,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
 
   // Load beats on mount
   useEffect(() => {
-    fetch(`/api/beats?projectSlug=${encodeURIComponent(slug)}`)
+    fetch(`/api/beats?projectSlug=${encodeURIComponent(slug)}&unit=chapter`)
       .then(r => r.json())
       .then(data => {
         if (data.beats) setBeats(data.beats);
@@ -239,7 +239,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
       .map(b => `[${STATUS_LABEL[b.status].text}] ${b.id}: ${b.title} — ${b.summary}`)
       .join("\n");
 
-    let prompt = `# 写作任务\n\n## 你要写的beat\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 本章所有beat\n${beatListStr}\n\n`;
+    let prompt = `# 逐章扩写任务\n\n## 你要写的章节\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 本章结构要点\n${beatListStr}\n\n`;
 
     if (priorSummaries) {
       prompt += `## 故事到此为止（前情摘要）\n\n${priorSummaries}\n\n`;
@@ -247,12 +247,12 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
     if (userInstruction) {
       prompt += `## 创作者指令（优先级最高）\n\n${userInstruction}\n\n`;
     }
-    prompt += `## 要求\n1. 只写这一个beat，不要写前后的内容\n2. 目标${beat.wordBudget}字左右，不要太长也不要太短\n3. 衔接好上文的语感和节奏\n4. 直接输出正文，不要加标题、不要加解释`;
+    prompt += `## 要求\n1. 写完整一章，不要拆成多个 beat 文件\n2. 必须对齐 scriptment 骨架和本章结构功能\n3. 目标${beat.wordBudget}字左右，不要太长也不要太短\n4. 衔接好上文的语感和节奏\n5. 直接输出正文，不要加解释`;
     return prompt;
   }
 
   function buildEditorPrompt(beat: Beat, writerOutput: string): string {
-    return `# 审稿任务\n\n## beat要求\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容要求**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 待审稿件\n\n${writerOutput}\n\n## 审稿规则\n1. 先列出【守住清单】——写得好的段落/句子，改稿时不可删改\n2. 再列问题（按P0/P1/P2分级）\n3. 如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]\n4. 不要自己改写，只提意见`;
+    return `# Post-Review Roundtable 审稿任务\n\n## 章节要求\n- **ID**: ${beat.id}\n- **标题**: ${beat.title}\n- **内容要求**: ${beat.summary}\n- **目标字数**: ${beat.wordBudget}字\n\n## 待审稿件\n\n${writerOutput}\n\n## 审稿规则\n1. 先列出【守住清单】——写得好的段落/句子，改稿时不可删改\n2. 检查骨架对齐、语言问题、字数、角色声音一致性\n3. 再列问题（按P0/P1/P2分级）\n4. 如果稿件质量达标（无P0问题，P1问题可接受），在回复最后单独一行写 [APPROVED]\n5. 不要自己改写，只提意见`;
   }
 
   function buildRevisionPrompt(writerOutput: string, editorReviewText: string, userNotes?: string): string {
@@ -448,7 +448,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
         <div className="mb-4 px-1">
           <div className="flex items-center justify-between text-white/60 mb-1.5">
             <span className="font-medium">写作进度</span>
-            <span>{totalDone}/{beats.length} beats</span>
+            <span>{totalDone}/{beats.length} 章</span>
           </div>
           <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mb-1.5">
             <div
@@ -524,7 +524,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
         {!currentBeat ? (
           <div className="flex-1 flex items-center justify-center text-white/30">
             <div className="text-center">
-              <p className="text-lg mb-4">选择一个beat开始写作</p>
+              <p className="text-lg mb-4">选择一个章节开始扩写</p>
               {getNextBeat() && (
                 <button
                   onClick={() => setCurrentBeatId(getNextBeat()!.id)}
@@ -537,7 +537,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
           </div>
         ) : (
           <>
-            {/* Beat header */}
+            {/* Chapter header */}
             <div className="p-4 border-b border-white/10">
               <div className="flex items-center gap-3">
                 <span className="text-lg">{STATUS_LABEL[currentBeat.status].icon}</span>
@@ -610,7 +610,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
                 <div className="flex-1 flex items-center justify-center h-full text-white/20">
                   <div className="text-center">
                     <div className="text-4xl mb-3 opacity-40">✍</div>
-                    <p className="text-sm">在下方输入写作指令，或直接点"开始写"</p>
+                    <p className="text-sm">在下方输入章节指令，或直接点开始写</p>
                     <p className="text-xs mt-1 text-white/15">目标 {currentBeat.wordBudget} 字 · {currentBeat.key ? "关键情节" : "过渡段落"}</p>
                   </div>
                 </div>
@@ -699,7 +699,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
                       onClick={() => { startWriting(currentBeat, userFeedback || undefined); setUserFeedback(""); }}
                       className="px-4 py-2 bg-emerald-600/30 hover:bg-emerald-600/50 rounded text-emerald-300 text-sm"
                     >
-                      {currentBeat.key ? "🔑 先讨论再写" : "开始写"}
+                      {currentBeat.key ? "先 briefing 再写" : "开始写"}
                     </button>
                   </div>
                 )}
@@ -784,7 +784,7 @@ export default function DraftWorkspace({ slug, activeProvider, onAdvancePhase }:
 
                 {currentBeat.status === "done" && !draftContent && (
                   <div className="flex gap-2 items-center text-white/40 text-sm">
-                    <span>✅ 这个beat已经完成了</span>
+                    <span>这个章节已经完成了</span>
                     <button
                       onClick={() => startWriting(currentBeat)}
                       className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded text-white/60 text-sm"

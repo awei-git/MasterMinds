@@ -5,9 +5,7 @@ import {
   saveReviewRound,
   loadReviewRound,
   loadFullDraft,
-  reviseFromIssues,
   type ReviewRound,
-  type ReviewIssue,
   type AgentReview,
   type SendFn,
 } from "@/lib/agents/review";
@@ -80,7 +78,7 @@ export async function POST(req: NextRequest) {
         const aggregated = aggregateIssues(reviews);
         let p0Count = aggregated.filter((i) => i.severity === "P0").length;
         let p1Count = aggregated.filter((i) => i.severity === "P1").length;
-        let p2Count = aggregated.filter((i) => i.severity === "P2").length;
+        const p2Count = aggregated.filter((i) => i.severity === "P2").length;
 
         // If parser found 0 issues, check raw text for P0 mentions
         if (aggregated.length === 0) {
@@ -89,8 +87,6 @@ export async function POST(req: NextRequest) {
             if (/P1[（(]|P1.*应该/.test(review.raw)) p1Count++;
           }
         }
-        const hasRawIssues = aggregated.length === 0 && (p0Count > 0 || p1Count > 0);
-
         send({
           type: "round_summary",
           round: startRound,

@@ -15,6 +15,10 @@
   --muted: #71767e;
   --gold: #5e8a85;
   --gold-dim: rgba(94, 138, 133, 0.08);
+  --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-serif-cn: "Songti SC", "Noto Serif SC", Georgia, "Times New Roman", serif;
+  --font-brush: "KaiTi", "STKaiti", cursive;
 }
 
 @theme inline {
