@@ -177,10 +177,17 @@ private struct ChapterEditorView: View {
             }
             .padding(20)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 18)
+        }
         .navigationTitle(chapter.title)
         .navigationBarTitleDisplayMode(.inline)
         .background(AppTheme.page)
         .toolbar {
+#if canImport(UIKit)
+            KeyboardDoneToolbar()
+#endif
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     focusMode.toggle()
@@ -248,9 +255,10 @@ private struct ChapterEditorView: View {
                 .font(AppTheme.prose(19))
                 .foregroundStyle(AppTheme.ink)
                 .lineSpacing(7)
-                .frame(minHeight: focusMode ? 720 : 560)
+                .frame(minHeight: focusMode ? 820 : 620)
                 .padding(22)
                 .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
                 .background(AppTheme.paper)
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)

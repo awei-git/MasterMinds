@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 enum AppTheme {
     static let page = Color(red: 0.068, green: 0.066, blue: 0.060)
@@ -192,3 +195,24 @@ struct ShenxianLogoMark: View {
         return .radians(angle)
     }
 }
+
+#if canImport(UIKit)
+enum KeyboardDismissal {
+    @MainActor
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+}
+
+struct KeyboardDoneToolbar: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .keyboard) {
+            Spacer()
+            Button("完成") {
+                KeyboardDismissal.dismiss()
+            }
+            .font(AppTheme.ui(15, weight: .semibold))
+        }
+    }
+}
+#endif

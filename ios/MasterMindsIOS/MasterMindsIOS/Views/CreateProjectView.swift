@@ -22,9 +22,13 @@ struct CreateProjectView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.interactively)
             .background(AppTheme.page)
             .navigationTitle("新建项目")
             .toolbar {
+#if canImport(UIKit)
+                KeyboardDoneToolbar()
+#endif
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }

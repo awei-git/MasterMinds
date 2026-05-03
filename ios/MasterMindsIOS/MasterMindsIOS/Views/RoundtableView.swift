@@ -25,6 +25,11 @@ struct RoundtableView: View {
             }
         }
         .background(AppTheme.page)
+        .toolbar {
+#if canImport(UIKit)
+            KeyboardDoneToolbar()
+#endif
+        }
     }
 
     private var sessionPanel: some View {
@@ -81,6 +86,7 @@ struct RoundtableView: View {
             }
             .padding(18)
         }
+        .scrollDismissesKeyboard(.interactively)
         .background(AppTheme.surface)
     }
 

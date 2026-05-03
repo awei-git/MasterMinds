@@ -42,12 +42,16 @@ struct SettingsView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("服务器")
             .onAppear {
                 serverURL = appState.serverBaseURL
                 Task { await appState.checkCloudSync() }
             }
             .toolbar {
+#if canImport(UIKit)
+                KeyboardDoneToolbar()
+#endif
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
