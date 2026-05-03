@@ -8,7 +8,7 @@ struct MasterMindsIOSApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
-                .preferredColorScheme(.light)
+                .preferredColorScheme(.dark)
         }
     }
 }

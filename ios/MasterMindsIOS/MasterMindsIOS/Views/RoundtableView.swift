@@ -34,7 +34,7 @@ struct RoundtableView: View {
                     SectionHeaderText(text: "Roundtable Session")
                     Text("把本轮争议写清楚，再让不同职能轮流拆解。")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
 
                 TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
@@ -92,7 +92,7 @@ struct RoundtableView: View {
                         .font(.headline.weight(.semibold))
                     Text(events.isEmpty ? "等待开始" : "\(events.count) 条事件")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
                 if isRunning {
@@ -189,7 +189,7 @@ private struct RoundtableEventRow: View {
                         .foregroundStyle(tint)
                     Spacer()
                     if let round = event.round {
-                        StatusPill(text: "第 \(round) 轮", color: Color(.secondaryLabel))
+                        StatusPill(text: "第 \(round) 轮", color: AppTheme.muted)
                     }
                 }
 
@@ -201,14 +201,14 @@ private struct RoundtableEventRow: View {
                 } else if let topic = event.topic {
                     Text(topic)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 } else if let error = event.error {
                     Text(error)
                         .foregroundStyle(.red)
                 } else {
                     Text(event.type)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
             }
             .padding(14)
@@ -246,8 +246,8 @@ private struct RoundtableEventRow: View {
         return switch event.type {
         case "error": .red
         case "chronicler_done": .orange
-        case "agent_done": .primary
-        default: .secondary
+        case "agent_done": AppTheme.ink
+        default: AppTheme.muted
         }
     }
 }
@@ -260,7 +260,7 @@ private struct RoleSeatRow: View {
         HStack(spacing: 10) {
             Text(WorkflowRole.alias(role).prefix(1))
                 .font(.caption.weight(.bold))
-                .foregroundStyle(AppTheme.paper)
+                .foregroundStyle(AppTheme.reverseInk)
                 .frame(width: 24, height: 24)
                 .background(AppTheme.roleTint(role), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
@@ -268,7 +268,7 @@ private struct RoleSeatRow: View {
                     .font(.caption.weight(.semibold))
                 Text(brief)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
             }
             Spacer()
         }
@@ -292,7 +292,7 @@ private struct EmptyTranscriptView: View {
                     .font(.headline)
                 Text("输入明确议题后启动圆桌。每位角色独立发言，最后由史官归纳纪要。")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

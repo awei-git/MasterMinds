@@ -83,7 +83,7 @@ private struct PhaseRow: View {
                         .font(.headline.weight(.semibold))
                     Text(phase.goal)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
             }
@@ -100,9 +100,9 @@ private struct PhaseRow: View {
     }
 
     private var statusColor: Color {
-        if isCurrent { return .accentColor }
+        if isCurrent { return AppTheme.accent }
         if isPast { return .green }
-        return .secondary
+        return AppTheme.muted
     }
 }
 

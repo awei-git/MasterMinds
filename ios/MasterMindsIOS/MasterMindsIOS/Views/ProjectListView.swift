@@ -14,9 +14,10 @@ struct ProjectListView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Library")
                         .font(.title2.weight(.semibold))
+                        .foregroundStyle(AppTheme.ink)
                     Text("\(projects.count) manuscripts")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 18)
@@ -42,7 +43,7 @@ struct ProjectListView: View {
                     HStack {
                         ProgressView()
                         Text("加载项目")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppTheme.muted)
                     }
                     .padding(.horizontal, 18)
                 } else if projects.isEmpty {
@@ -120,7 +121,6 @@ struct ProjectListView: View {
             }
         } catch {
             appState.connectionState = .offline(error.localizedDescription)
-            appState.lastError = "无法连接到 \(appState.serverBaseURL)。请确认 Mac 上已启动 `pnpm dev:lan`，且手机和 Mac 在同一网络。"
         }
     }
 }
@@ -140,7 +140,7 @@ private struct ProjectRow: View {
                     Spacer()
                     Text(project.updatedAt, style: .date)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
 
                 HStack(spacing: 8) {
@@ -149,7 +149,7 @@ private struct ProjectRow: View {
                     Text(project.status)
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.muted)
             }
 
             HStack(spacing: 10) {
@@ -204,7 +204,7 @@ private struct ServerStatusRow: View {
                 }
                 Text(serverURL)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                     .lineLimit(1)
                 Text(cloudTitle)
                     .font(.caption)
@@ -212,7 +212,7 @@ private struct ServerStatusRow: View {
                 if case .offline(let message) = state {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                         .lineLimit(2)
                     Button("重新连接", action: onRetry)
                         .buttonStyle(.bordered)
@@ -275,9 +275,10 @@ private struct EmptyProjectList: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("没有项目")
                 .font(.headline)
+                .foregroundStyle(AppTheme.ink)
             Text("创建一个长篇项目开始协同写作。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.muted)
         }
         .padding(.vertical, 12)
     }

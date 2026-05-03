@@ -33,9 +33,10 @@ private struct EmptyWorkspaceView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("协同写作室")
                 .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(AppTheme.ink)
             Text("选择一个项目，进入构思、世界与角色、结构、全文速写和逐章扩写流程。")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.muted)
                 .frame(maxWidth: 440, alignment: .leading)
             Divider()
             VStack(alignment: .leading, spacing: 10) {
@@ -44,7 +45,7 @@ private struct EmptyWorkspaceView: View {
                 Label("章节视图负责扩写和修订", systemImage: "text.book.closed")
             }
             .font(.callout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppTheme.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(32)

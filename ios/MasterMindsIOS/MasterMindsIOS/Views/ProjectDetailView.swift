@@ -59,10 +59,11 @@ private struct ProjectHeader: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(project.title)
                         .font(.title2.weight(.semibold))
+                        .foregroundStyle(AppTheme.ink)
                         .lineLimit(1)
                     Text("Manuscript workspace")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
                 StatusPill(text: project.phaseLabel, color: AppTheme.phaseTint(project.phase))
@@ -96,7 +97,7 @@ private struct WorkflowRail: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(Workflow.phaseLabel(phase))
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(phase == normalized(currentPhase) ? AppTheme.ink : .secondary)
+                        .foregroundStyle(phase == normalized(currentPhase) ? AppTheme.ink : AppTheme.muted)
                         .lineLimit(1)
                     ThinProgress(
                         value: phase == normalized(currentPhase) ? 1 : completed(phase) ? 1 : 0,
@@ -143,7 +144,7 @@ private struct ModeBar: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(selectedTab == mode.0 ? AppTheme.accent : Color.clear)
-                            .foregroundStyle(selectedTab == mode.0 ? AppTheme.paper : AppTheme.ink)
+                            .foregroundStyle(selectedTab == mode.0 ? AppTheme.reverseInk : AppTheme.ink)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)

@@ -15,7 +15,7 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                     Text("真机不能使用 localhost。Mac 端请用 `pnpm dev:lan` 启动，然后填写 Mac 的局域网地址。")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
 
                 Section("快速设置") {
@@ -32,11 +32,11 @@ struct SettingsView: View {
                         Text("同步状态")
                         Spacer()
                         Text(cloudStatus)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppTheme.muted)
                     }
                     Text("项目、阶段、章节结构和章节草稿会写入当前 Apple ID 的 iCloud Key-Value Store。同步不是实时协作；离线编辑后会在网络恢复时慢同步。")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                     Button("检查 iCloud") {
                         Task { await appState.checkCloudSync() }
                     }

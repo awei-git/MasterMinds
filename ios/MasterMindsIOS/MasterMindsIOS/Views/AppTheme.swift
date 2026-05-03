@@ -1,37 +1,38 @@
 import SwiftUI
 
 enum AppTheme {
-    static let page = Color(red: 0.965, green: 0.957, blue: 0.940)
-    static let surface = Color(red: 0.992, green: 0.988, blue: 0.976)
-    static let paper = Color(red: 1.000, green: 0.997, blue: 0.988)
-    static let sidebar = Color(red: 0.925, green: 0.913, blue: 0.890)
-    static let line = Color(red: 0.72, green: 0.69, blue: 0.63).opacity(0.42)
-    static let ink = Color(red: 0.12, green: 0.105, blue: 0.085)
-    static let muted = Color(red: 0.42, green: 0.39, blue: 0.34)
-    static let faint = Color(red: 0.58, green: 0.54, blue: 0.48)
-    static let accent = Color(red: 0.23, green: 0.20, blue: 0.16)
-    static let brass = Color(red: 0.58, green: 0.43, blue: 0.24)
+    static let page = Color(red: 0.068, green: 0.066, blue: 0.060)
+    static let surface = Color(red: 0.110, green: 0.104, blue: 0.092)
+    static let paper = Color(red: 0.150, green: 0.138, blue: 0.116)
+    static let sidebar = Color(red: 0.086, green: 0.080, blue: 0.070)
+    static let line = Color(red: 0.78, green: 0.70, blue: 0.56).opacity(0.23)
+    static let ink = Color(red: 0.955, green: 0.925, blue: 0.850)
+    static let muted = Color(red: 0.720, green: 0.660, blue: 0.555)
+    static let faint = Color(red: 0.505, green: 0.455, blue: 0.370)
+    static let accent = Color(red: 0.790, green: 0.615, blue: 0.365)
+    static let brass = Color(red: 0.860, green: 0.705, blue: 0.430)
+    static let reverseInk = Color(red: 0.055, green: 0.050, blue: 0.044)
     static let editorMeasure: CGFloat = 720
 
     static func phaseTint(_ phase: String) -> Color {
         switch phase {
-        case "conception": Color(red: 0.25, green: 0.33, blue: 0.42)
-        case "bible": Color(red: 0.35, green: 0.30, blue: 0.44)
-        case "structure": Color(red: 0.28, green: 0.39, blue: 0.34)
-        case "scriptment": Color(red: 0.45, green: 0.34, blue: 0.24)
-        case "expansion", "draft", "review", "revision", "final": Color(red: 0.42, green: 0.24, blue: 0.22)
+        case "conception": Color(red: 0.500, green: 0.650, blue: 0.770)
+        case "bible": Color(red: 0.655, green: 0.585, blue: 0.780)
+        case "structure": Color(red: 0.545, green: 0.700, blue: 0.565)
+        case "scriptment": Color(red: 0.820, green: 0.640, blue: 0.405)
+        case "expansion", "draft", "review", "revision", "final": Color(red: 0.820, green: 0.465, blue: 0.400)
         default: accent
         }
     }
 
     static func roleTint(_ role: String) -> Color {
         switch role {
-        case "idea", "story_architect", "architect", "plot_doctor": Color(red: 0.25, green: 0.33, blue: 0.42)
-        case "character", "character_psychologist": Color(red: 0.42, green: 0.24, blue: 0.31)
-        case "writer", "bible_writer", "structure_writer", "scriptment_writer", "chapter_writer": Color(red: 0.36, green: 0.39, blue: 0.28)
-        case "editor", "style_editor", "market_editor", "scriptment_reviewer", "chapter_editor": Color(red: 0.50, green: 0.32, blue: 0.22)
-        case "reader": Color(red: 0.28, green: 0.39, blue: 0.34)
-        case "continuity", "continuity_editor": Color(red: 0.35, green: 0.30, blue: 0.44)
+        case "idea", "story_architect", "architect", "plot_doctor": Color(red: 0.500, green: 0.650, blue: 0.770)
+        case "character", "character_psychologist": Color(red: 0.800, green: 0.500, blue: 0.630)
+        case "writer", "bible_writer", "structure_writer", "scriptment_writer", "chapter_writer": Color(red: 0.620, green: 0.710, blue: 0.470)
+        case "editor", "style_editor", "market_editor", "scriptment_reviewer", "chapter_editor": Color(red: 0.860, green: 0.590, blue: 0.390)
+        case "reader": Color(red: 0.545, green: 0.700, blue: 0.565)
+        case "continuity", "continuity_editor": Color(red: 0.655, green: 0.585, blue: 0.780)
         case "chronicler": brass
         default: accent
         }
@@ -45,6 +46,7 @@ struct SurfacePanel<Content: View>: View {
         content
             .padding(14)
             .background(AppTheme.surface)
+            .foregroundStyle(AppTheme.ink)
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(AppTheme.line)
@@ -105,7 +107,11 @@ struct StatusPill: View {
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(color.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(color.opacity(0.26))
+            }
     }
 }
 

@@ -23,7 +23,7 @@ struct ExpansionChaptersView: View {
                         .font(.headline)
                     Text("先在结构阶段生成 beat sheet，或在 Web 工作台导入章节结构。")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 .padding(.vertical, 12)
             } else {
@@ -74,7 +74,7 @@ private struct ChapterRow: View {
         HStack(alignment: .top, spacing: 12) {
             Text(chapter.chapter)
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.muted)
                 .frame(width: 34, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 7) {
@@ -91,7 +91,7 @@ private struct ChapterRow: View {
 
             Text(chapter.summary)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.muted)
                 .lineLimit(3)
 
             HStack {
@@ -101,7 +101,7 @@ private struct ChapterRow: View {
                 }
             }
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(AppTheme.faint)
             }
         }
         .padding(.vertical, 4)
@@ -111,8 +111,8 @@ private struct ChapterRow: View {
         switch chapter.status {
         case "done": .green
         case "review", "revising": .orange
-        case "writing": .accentColor
-        default: .secondary
+        case "writing": AppTheme.accent
+        default: AppTheme.muted
         }
     }
 }
@@ -129,7 +129,7 @@ private struct ChapterOverview: View {
                     Spacer()
                     Text("\(chapters.count) chapters")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 HStack(spacing: 12) {
                     MetricTile(label: "目标字数", value: "\(chapters.map(\.wordBudget).reduce(0, +))", icon: "target")
@@ -213,7 +213,7 @@ private struct ChapterEditorView: View {
                         .font(.title2.weight(.semibold))
                     Text("\(wordCount) 词 · \(draft.count) 字符 · 约 \(readingMinutes) 分钟")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                 }
                 Spacer()
                 if isSaving {
@@ -261,7 +261,7 @@ private struct ChapterEditorView: View {
             if let savedPath {
                 Text(savedPath)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                     .lineLimit(1)
             }
         }
@@ -275,7 +275,7 @@ private struct ChapterEditorView: View {
                     SectionHeaderText(text: "Chapter Brief")
                     Text(chapter.summary)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                     Divider()
                     MetricTile(label: "章节", value: chapter.chapter, icon: "number")
                     MetricTile(label: "目标", value: "\(chapter.wordBudget)", icon: "target")

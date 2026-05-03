@@ -109,7 +109,7 @@ private struct StageDossier: View {
 
                 Text(taskHint)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 12) {
@@ -152,11 +152,11 @@ private struct WritingTaskCard: View {
                         .foregroundStyle(AppTheme.ink)
                     Text(task.subtitle)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
                         StatusPill(text: "AI 起草", color: AppTheme.brass)
-                        StatusPill(text: task.kind, color: .secondary)
+                        StatusPill(text: task.kind, color: AppTheme.muted)
                     }
                 }
 
@@ -200,11 +200,11 @@ private struct ResultSummary: View {
                 }
                 Text(result.path)
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                     .lineLimit(1)
                 Text(result.content)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.muted)
                     .lineLimit(4)
             }
         }
