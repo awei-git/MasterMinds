@@ -147,19 +147,13 @@ struct MasterMindsAPI {
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
                     try validate(response: response, body: Data())
 
-                    var blockLines: [String] = []
                     for try await line in bytes.lines {
-                        if line.isEmpty {
-                            if let event = try decodeSSEBlock(blockLines.joined(separator: "\n")) {
-                                continuation.yield(event)
-                                if event.type == "done" || event.type == "error" {
-                                    continuation.finish()
-                                    return
-                                }
+                        if let event = try decodeSSELine(line) {
+                            continuation.yield(event)
+                            if event.type == "done" || event.type == "error" {
+                                continuation.finish()
+                                return
                             }
-                            blockLines.removeAll(keepingCapacity: true)
-                        } else {
-                            blockLines.append(line)
                         }
                     }
                     continuation.finish()
@@ -175,7 +169,7 @@ struct MasterMindsAPI {
         method: String,
         query: [String: String] = [:]
     ) async throws -> T {
-        var request = try makeRequest(path: path, method: method, query: query)
+        let request = try makeRequest(path: path, method: method, query: query)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try validate(response: response, body: data)
@@ -225,14 +219,16 @@ struct MasterMindsAPI {
         }
     }
 
-    private func decodeSSEBlock(_ block: String) throws -> RoundtableEvent? {
-        let payload = block
-            .split(separator: "\n")
-            .compactMap { line -> Substring? in
-                line.hasPrefix("data: ") ? line.dropFirst(6) : nil
-            }
-            .joined(separator: "\n")
-
+    func decodeSSELine(_ line: String) throws -> RoundtableEvent? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload: String
+        if trimmed.hasPrefix("data: ") {
+            payload = String(trimmed.dropFirst(6))
+        } else if trimmed.hasPrefix("data:") {
+            payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        } else {
+            return nil
+        }
         guard !payload.isEmpty, payload != "[DONE]" else { return nil }
         guard let data = payload.data(using: .utf8) else { return nil }
         return try decoder.decode(RoundtableEvent.self, from: data)
