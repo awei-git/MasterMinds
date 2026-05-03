@@ -120,7 +120,7 @@ struct RoundtableEvent: Identifiable, Codable, Hashable {
             discussionId ?? "",
             role ?? "",
             String(round ?? 0),
-            message?.id ?? UUID().uuidString,
+            message?.id ?? topic ?? label ?? error ?? "",
         ].joined(separator: "-")
     }
 }
