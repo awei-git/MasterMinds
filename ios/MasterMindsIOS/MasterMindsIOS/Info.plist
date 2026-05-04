@@ -27,6 +27,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>ZhiMangXing-Regular.ttf</string>

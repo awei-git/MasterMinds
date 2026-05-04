@@ -59,6 +59,7 @@ final class AppState: ObservableObject {
     private static let providerSettingsKey = "providerSettings"
     static let defaultServerBaseURL = "http://192.168.1.232:3000"
     private let cloudStore = CloudWritingStore()
+    private let cloudBridge = ICloudBridgeClient()
     private var roundtableTasks: [String: Task<Void, Never>] = [:]
 
     init() {
@@ -98,8 +99,23 @@ final class AppState: ObservableObject {
         cloudSyncState = .checking
         if let message = await cloudStore.accountStatusDescription() {
             cloudSyncState = .unavailable(message)
+        } else if !cloudBridge.isAvailable {
+            cloudSyncState = .unavailable("请选择 iCloud Drive 的 MasterMinds-Bridge 文件夹")
         } else {
             cloudSyncState = .available
+        }
+    }
+
+    var bridgeFolderName: String? {
+        cloudBridge.configuredFolderName
+    }
+
+    func setBridgeFolder(_ url: URL) {
+        do {
+            try cloudBridge.setBridgeFolder(url)
+            cloudSyncState = .available
+        } catch {
+            cloudSyncState = .unavailable(error.localizedDescription)
         }
     }
 
@@ -112,6 +128,11 @@ final class AppState: ObservableObject {
             return projects
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let bridged = try? await cloudBridge.projects() {
+                cloudSyncState = .available
+                _ = await cloudStore.upsertProjects(bridged, syncToCloud: true)
+                return bridged
+            }
             let cached = await cloudStore.projects()
             await checkCloudSync()
             if !cached.isEmpty {
@@ -130,6 +151,11 @@ final class AppState: ObservableObject {
             return project
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let project = try? await cloudBridge.createProject(title: title, type: type) {
+                cloudSyncState = .available
+                _ = await cloudStore.upsertProjects([project], syncToCloud: true)
+                return project
+            }
             let project = await cloudStore.createProject(title: title, type: type)
             await checkCloudSync()
             return project
@@ -145,6 +171,11 @@ final class AppState: ObservableObject {
             return project
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let project = try? await cloudBridge.setPhase(slug: slug, phase: phase) {
+                cloudSyncState = .available
+                _ = await cloudStore.upsertProjects([project], syncToCloud: true)
+                return project
+            }
             let project = try await cloudStore.setPhase(slug: slug, phase: phase)
             await checkCloudSync()
             return project
@@ -161,6 +192,10 @@ final class AppState: ObservableObject {
             return try await api.phaseSummary(projectSlug: projectSlug, phase: phase)
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let content = try? await cloudBridge.phaseSummary(projectSlug: projectSlug, phase: phase) {
+                cloudSyncState = .available
+                return content
+            }
             return nil
         }
     }
@@ -174,6 +209,11 @@ final class AppState: ObservableObject {
             return chapters
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let chapters = try? await cloudBridge.chapters(projectSlug: projectSlug) {
+                cloudSyncState = .available
+                _ = await cloudStore.upsertChapters(chapters, projectSlug: projectSlug, syncToCloud: true)
+                return chapters
+            }
             let cached = await cloudStore.chapters(projectSlug: projectSlug)
             await checkCloudSync()
             return cached
@@ -195,6 +235,18 @@ final class AppState: ObservableObject {
             return artifact
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let artifact = try? await cloudBridge.chapterDraft(projectSlug: projectSlug, chapterId: chapterId) {
+                cloudSyncState = .available
+                if let content = artifact.content {
+                    _ = await cloudStore.saveChapterDraft(
+                        projectSlug: projectSlug,
+                        chapterId: chapterId,
+                        content: content,
+                        path: artifact.path
+                    )
+                }
+                return artifact
+            }
             if let draft = await cloudStore.chapterDraft(projectSlug: projectSlug, chapterId: chapterId) {
                 await checkCloudSync()
                 return SavedArtifactResponse(content: draft.content, path: draft.path)
@@ -211,6 +263,11 @@ final class AppState: ObservableObject {
             return result
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let result = try? await cloudBridge.saveChapterDraft(projectSlug: projectSlug, chapterId: chapterId, content: content) {
+                cloudSyncState = .available
+                _ = await cloudStore.saveChapterDraft(projectSlug: projectSlug, chapterId: chapterId, content: content, path: result.path)
+                return result
+            }
             let draft = await cloudStore.saveChapterDraft(projectSlug: projectSlug, chapterId: chapterId, content: content)
             await checkCloudSync()
             return SaveArtifactResponse(ok: true, path: draft.path)
@@ -244,6 +301,25 @@ final class AppState: ObservableObject {
             return result
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let result = try? await cloudBridge.runWritingTask(
+                projectSlug: projectSlug,
+                kind: kind,
+                chapterId: chapterId,
+                instruction: instruction,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage
+            ) {
+                cloudSyncState = .available
+                if let chapterId, kind != "chapter_briefing" {
+                    _ = await cloudStore.saveChapterDraft(
+                        projectSlug: projectSlug,
+                        chapterId: chapterId,
+                        content: result.content,
+                        path: result.path
+                    )
+                }
+                return result
+            }
             throw APIClientError.server("AI 生成需要连接服务器；离线时可以继续编辑并用 iCloud 保存草稿。")
         }
     }
@@ -420,6 +496,10 @@ final class AppState: ObservableObject {
                 return
             }
 
+            if await runRoundtableViaBridge(projectSlug: projectSlug, phase: phase, key: key, initialSession: session, humanInterjection: humanInterjection) {
+                return
+            }
+
             let message = error.localizedDescription
             var latest = roundtableSessions[key] ?? session
             latest.runError = message
@@ -428,6 +508,55 @@ final class AppState: ObservableObject {
             connectionState = .offline(message)
             lastError = message
             roundtableSessions[key] = latest
+        }
+    }
+
+    private func runRoundtableViaBridge(
+        projectSlug: String,
+        phase: String,
+        key: String,
+        initialSession session: RoundtableSessionState,
+        humanInterjection: String?
+    ) async -> Bool {
+        guard cloudBridge.isAvailable else { return false }
+
+        var latest = roundtableSessions[key] ?? session
+        latest.runError = nil
+        latest.statusMessage = "服务器不可达，改用 iCloud 慢通道"
+        roundtableSessions[key] = latest
+
+        do {
+            let bridgedEvents = try await cloudBridge.roundtable(
+                projectSlug: projectSlug,
+                phase: phase,
+                topic: session.topic.trimmingCharacters(in: .whitespacesAndNewlines),
+                maxRounds: session.maxRounds,
+                generateSummary: false,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage,
+                discussionId: session.discussionId,
+                humanInterjection: humanInterjection
+            )
+            var updated = roundtableSessions[key] ?? session
+            for event in bridgedEvents {
+                if let discussionId = event.discussionId {
+                    updated.discussionId = discussionId
+                }
+                updated.events.append(event)
+                updated.statusMessage = status(for: event)
+            }
+            updated.runError = nil
+            updated.statusMessage = "iCloud 慢通道完成"
+            roundtableSessions[key] = updated
+            cloudSyncState = .available
+            return true
+        } catch {
+            var failed = roundtableSessions[key] ?? session
+            failed.statusMessage = "iCloud 慢通道失败"
+            failed.runError = error.localizedDescription
+            roundtableSessions[key] = failed
+            cloudSyncState = .unavailable(error.localizedDescription)
+            return true
         }
     }
 

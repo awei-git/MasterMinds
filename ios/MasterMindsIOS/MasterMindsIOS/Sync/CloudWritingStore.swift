@@ -1,4 +1,3 @@
-import CloudKit
 import Foundation
 
 struct ChapterDraftCache: Codable, Hashable {
@@ -22,8 +21,6 @@ final class CloudWritingStore {
     private static let keyValueSnapshotKey = "com.angwei.shenxianhui.writing-cache.v1"
     private static let keyValueSnapshotLimit = 900_000
 
-    private var container: CKContainer { CKContainer(identifier: Self.containerIdentifier) }
-    private var database: CKDatabase { container.privateCloudDatabase }
     private let cacheURL: URL
     private var lastSyncError: String?
 
@@ -244,131 +241,280 @@ final class CloudWritingStore {
         "\(projectSlug)::\(chapterId)"
     }
 
-    private func recordName(_ parts: String...) -> String {
-        let raw = parts.joined(separator: "::")
-        let encoded = Data(raw.utf8).base64EncodedString()
-        return encoded
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "=", with: "")
+}
+
+private struct EmptyBridgePayload: Encodable {}
+
+private struct BridgeCommand<Payload: Encodable>: Encodable {
+    let id: String
+    let action: String
+    let createdAt: Date
+    let payload: Payload
+}
+
+private struct BridgeCreateProjectPayload: Encodable {
+    let title: String
+    let type: String
+}
+
+private struct BridgeSetPhasePayload: Encodable {
+    let slug: String
+    let phase: String
+}
+
+private struct BridgeProjectPayload: Encodable {
+    let projectSlug: String
+}
+
+private struct BridgeChapterPayload: Encodable {
+    let projectSlug: String
+    let chapterId: String
+}
+
+private struct BridgeSaveDraftPayload: Encodable {
+    let projectSlug: String
+    let chapterId: String
+    let content: String
+}
+
+private struct BridgePhasePayload: Encodable {
+    let projectSlug: String
+    let phase: String
+}
+
+private struct BridgeWritingTaskPayload: Encodable {
+    let projectSlug: String
+    let kind: String
+    let chapterId: String?
+    let instruction: String?
+    let providerSettings: ModelProviderSettings
+    let writingLanguage: String
+}
+
+private struct BridgeRoundtablePayload: Encodable {
+    let projectSlug: String
+    let phase: String
+    let topic: String
+    let maxRounds: Int
+    let generateSummary: Bool
+    let providerSettings: ModelProviderSettings
+    let writingLanguage: String
+    let discussionId: String?
+    let humanInterjection: String?
+}
+
+@MainActor
+final class ICloudBridgeClient {
+    private static let bridgeFolderName = "MasterMinds-Bridge"
+    private static let bridgeBookmarkKey = "masterminds.icloudBridgeFolderBookmark"
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
     }
 
-    private func saveProjectRecord(_ project: Project) async throws {
-        let record = CKRecord(
-            recordType: "MMProject",
-            recordID: CKRecord.ID(recordName: recordName("project", project.slug))
-        )
-        record["projectId"] = project.id as NSString
-        record["slug"] = project.slug as NSString
-        record["title"] = project.title as NSString
-        record["type"] = project.type as NSString
-        record["phase"] = project.phase as NSString
-        record["status"] = project.status as NSString
-        record["updatedAt"] = project.updatedAt as NSDate
-        _ = try await database.save(record)
+    var isAvailable: Bool {
+        bridgeRootURL != nil
     }
 
-    private func fetchCloudProjects() async throws -> [Project] {
-        let records = try await performQuery(recordType: "MMProject", predicate: NSPredicate(value: true))
-        return records.compactMap { record in
-            guard
-                let id = record["projectId"] as? String,
-                let slug = record["slug"] as? String,
-                let title = record["title"] as? String,
-                let type = record["type"] as? String,
-                let phase = record["phase"] as? String,
-                let status = record["status"] as? String,
-                let updatedAt = record["updatedAt"] as? Date
-            else { return nil }
-            return Project(id: id, slug: slug, title: title, type: type, phase: phase, status: status, updatedAt: updatedAt)
+    var configuredFolderName: String? {
+        bridgeRootURL?.lastPathComponent
+    }
+
+    func setBridgeFolder(_ url: URL) throws {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { url.stopAccessingSecurityScopedResource() }
         }
-    }
-
-    private func saveChapterRecord(_ chapter: ChapterUnit, projectSlug: String) async throws {
-        let record = CKRecord(
-            recordType: "MMChapter",
-            recordID: CKRecord.ID(recordName: recordName("chapter", projectSlug, chapter.id))
-        )
-        record["projectSlug"] = projectSlug as NSString
-        record["chapterId"] = chapter.id as NSString
-        record["chapter"] = chapter.chapter as NSString
-        record["title"] = chapter.title as NSString
-        record["summary"] = chapter.summary as NSString
-        record["key"] = NSNumber(value: chapter.key)
-        record["wordBudget"] = NSNumber(value: chapter.wordBudget)
-        record["status"] = chapter.status as NSString
-        if let wordCount = chapter.wordCount {
-            record["wordCount"] = NSNumber(value: wordCount)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        for folder in ["commands", "responses", "processed"] {
+            try fileManager.createDirectory(at: url.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
         }
-        _ = try await database.save(record)
+        let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        UserDefaults.standard.set(bookmark, forKey: Self.bridgeBookmarkKey)
     }
 
-    private func fetchCloudChapters(projectSlug: String) async throws -> [ChapterUnit] {
-        let predicate = NSPredicate(format: "projectSlug == %@", projectSlug)
-        let records = try await performQuery(recordType: "MMChapter", predicate: predicate)
-        return records.compactMap { record in
-            guard
-                let id = record["chapterId"] as? String,
-                let chapter = record["chapter"] as? String,
-                let title = record["title"] as? String,
-                let summary = record["summary"] as? String,
-                let key = record["key"] as? Bool,
-                let wordBudget = record["wordBudget"] as? Int,
-                let status = record["status"] as? String
-            else { return nil }
-            return ChapterUnit(
-                id: id,
-                chapter: chapter,
-                title: title,
-                summary: summary,
-                key: key,
-                wordBudget: wordBudget,
-                status: status,
-                wordCount: record["wordCount"] as? Int
-            )
-        }
-        .sorted { $0.chapter.localizedStandardCompare($1.chapter) == .orderedAscending }
+    func projects() async throws -> [Project] {
+        try await request(action: "projects.list", payload: EmptyBridgePayload(), timeout: 90)
     }
 
-    private func saveDraftRecord(_ draft: ChapterDraftCache) async throws {
-        let record = CKRecord(
-            recordType: "MMChapterDraft",
-            recordID: CKRecord.ID(recordName: recordName("draft", draft.projectSlug, draft.chapterId))
+    func createProject(title: String, type: String) async throws -> Project {
+        try await request(action: "projects.create", payload: BridgeCreateProjectPayload(title: title, type: type), timeout: 120)
+    }
+
+    func setPhase(slug: String, phase: String) async throws -> Project {
+        try await request(action: "projects.setPhase", payload: BridgeSetPhasePayload(slug: slug, phase: phase), timeout: 120)
+    }
+
+    func phaseSummary(projectSlug: String, phase: String) async throws -> String? {
+        let response: PhaseSummaryResponse = try await request(
+            action: "phases.summary",
+            payload: BridgePhasePayload(projectSlug: projectSlug, phase: phase),
+            timeout: 120
         )
-        record["projectSlug"] = draft.projectSlug as NSString
-        record["chapterId"] = draft.chapterId as NSString
-        record["content"] = draft.content as NSString
-        record["path"] = (draft.path ?? "") as NSString
-        record["updatedAt"] = draft.updatedAt as NSDate
-        _ = try await database.save(record)
+        return response.content
     }
 
-    private func fetchCloudDraft(projectSlug: String, chapterId: String) async throws -> ChapterDraftCache? {
-        let id = CKRecord.ID(recordName: recordName("draft", projectSlug, chapterId))
-        let record = try await database.record(for: id)
+    func chapters(projectSlug: String) async throws -> [ChapterUnit] {
+        let response: ChapterListResponse = try await request(
+            action: "chapters.list",
+            payload: BridgeProjectPayload(projectSlug: projectSlug),
+            timeout: 120
+        )
+        return response.beats
+    }
+
+    func chapterDraft(projectSlug: String, chapterId: String) async throws -> SavedArtifactResponse {
+        try await request(
+            action: "chapterDraft.get",
+            payload: BridgeChapterPayload(projectSlug: projectSlug, chapterId: chapterId),
+            timeout: 120
+        )
+    }
+
+    func saveChapterDraft(projectSlug: String, chapterId: String, content: String) async throws -> SaveArtifactResponse {
+        try await request(
+            action: "chapterDraft.save",
+            payload: BridgeSaveDraftPayload(projectSlug: projectSlug, chapterId: chapterId, content: content),
+            timeout: 120
+        )
+    }
+
+    func runWritingTask(
+        projectSlug: String,
+        kind: String,
+        chapterId: String?,
+        instruction: String?,
+        providerSettings: ModelProviderSettings,
+        writingLanguage: String
+    ) async throws -> WritingTaskResult {
+        try await request(
+            action: "writingTask.run",
+            payload: BridgeWritingTaskPayload(
+                projectSlug: projectSlug,
+                kind: kind,
+                chapterId: chapterId,
+                instruction: instruction,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage
+            ),
+            timeout: 900
+        )
+    }
+
+    func roundtable(
+        projectSlug: String,
+        phase: String,
+        topic: String,
+        maxRounds: Int,
+        generateSummary: Bool,
+        providerSettings: ModelProviderSettings,
+        writingLanguage: String,
+        discussionId: String?,
+        humanInterjection: String?
+    ) async throws -> [RoundtableEvent] {
+        try await request(
+            action: "roundtable.run",
+            payload: BridgeRoundtablePayload(
+                projectSlug: projectSlug,
+                phase: phase,
+                topic: topic,
+                maxRounds: maxRounds,
+                generateSummary: generateSummary,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage,
+                discussionId: discussionId,
+                humanInterjection: humanInterjection
+            ),
+            timeout: 1_200
+        )
+    }
+
+    private var bridgeRootURL: URL? {
+        guard let bookmark = UserDefaults.standard.data(forKey: Self.bridgeBookmarkKey) else { return nil }
+        var stale = false
         guard
-            let content = record["content"] as? String,
-            let updatedAt = record["updatedAt"] as? Date
+            let url = try? URL(
+                resolvingBookmarkData: bookmark,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
         else { return nil }
-        return ChapterDraftCache(
-            projectSlug: projectSlug,
-            chapterId: chapterId,
-            content: content,
-            path: record["path"] as? String,
-            updatedAt: updatedAt
-        )
+        _ = url.startAccessingSecurityScopedResource()
+        return url.lastPathComponent == Self.bridgeFolderName
+            ? url
+            : url.appendingPathComponent(Self.bridgeFolderName, isDirectory: true)
     }
 
-    private func performQuery(recordType: String, predicate: NSPredicate) async throws -> [CKRecord] {
-        let query = CKQuery(recordType: recordType, predicate: predicate)
-        return try await withCheckedThrowingContinuation { continuation in
-            database.perform(query, inZoneWith: nil) { records, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: records ?? [])
-                }
-            }
+    private func request<T: Decodable, Payload: Encodable>(
+        action: String,
+        payload: Payload,
+        timeout: TimeInterval
+    ) async throws -> T {
+        guard let root = bridgeRootURL else {
+            throw APIClientError.server("iCloud Drive 容器不可用")
         }
+
+        let id = "ios-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString)"
+        let command = BridgeCommand(id: id, action: action, createdAt: Date(), payload: payload)
+        let commandURL = root
+            .appendingPathComponent("commands", isDirectory: true)
+            .appendingPathComponent("\(id).json")
+        let responseURL = root
+            .appendingPathComponent("responses", isDirectory: true)
+            .appendingPathComponent("\(id).json")
+
+        try write(command, to: commandURL)
+        return try await waitForResponse(responseURL, timeout: timeout)
+    }
+
+    private func write<Payload: Encodable>(_ command: BridgeCommand<Payload>, to url: URL) throws {
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(command)
+        let tempURL = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).tmp")
+        try data.write(to: tempURL, options: [.atomic])
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+        try fileManager.moveItem(at: tempURL, to: url)
+    }
+
+    private func waitForResponse<T: Decodable>(_ url: URL, timeout: TimeInterval) async throws -> T {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if fileManager.fileExists(atPath: url.path) {
+                try? fileManager.startDownloadingUbiquitousItem(at: url)
+                let data = try Data(contentsOf: url)
+                let decoded: T = try decodeResponse(data)
+                try? fileManager.removeItem(at: url)
+                return decoded
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        throw APIClientError.server("iCloud Bridge 等待 Mac 返回超时")
+    }
+
+    private func decodeResponse<T: Decodable>(_ data: Data) throws -> T {
+        guard
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            throw APIClientError.server("iCloud Bridge 返回格式错误")
+        }
+        if let error = object["error"] as? String, !error.isEmpty {
+            throw APIClientError.server(error)
+        }
+        let status = object["status"] as? String
+        if status != nil, status != "ok" {
+            throw APIClientError.server("iCloud Bridge 返回失败")
+        }
+        let dataObject = object["data"] ?? [:]
+        let responseData = try JSONSerialization.data(withJSONObject: dataObject)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(T.self, from: responseData)
     }
 }

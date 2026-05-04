@@ -1,4 +1,8 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+import UniformTypeIdentifiers
+#endif
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -6,6 +10,7 @@ struct SettingsView: View {
     @State private var serverURL = ""
     @State private var writingLanguage = "zh"
     @State private var providerSettings = ModelProviderSettings.defaults
+    @State private var showingBridgeFolderPicker = false
 
     var body: some View {
         NavigationStack {
@@ -36,9 +41,20 @@ struct SettingsView: View {
                         Text(cloudStatus)
                             .foregroundStyle(AppTheme.muted)
                     }
-                    Text("项目、阶段、章节结构和章节草稿会写入当前 Apple ID 的 iCloud Key-Value Store。同步不是实时协作；离线编辑后会在网络恢复时慢同步。")
+                    HStack {
+                        Text("Bridge 文件夹")
+                        Spacer()
+                        Text(appState.bridgeFolderName ?? "未选择")
+                            .foregroundStyle(AppTheme.muted)
+                    }
+                    Text("服务器不可达时会走 iCloud Drive 慢通道。请选择 iCloud Drive 里的 MasterMinds-Bridge 文件夹；家里的 Mac worker 会读写同一个文件夹。")
                         .font(AppTheme.prose(13))
                         .foregroundStyle(AppTheme.muted)
+#if canImport(UIKit)
+                    Button("选择 Bridge 文件夹") {
+                        showingBridgeFolderPicker = true
+                    }
+#endif
                     Button("检查 iCloud") {
                         Task { await appState.checkCloudSync() }
                     }
@@ -84,6 +100,14 @@ struct SettingsView: View {
                     }
                 }
             }
+#if canImport(UIKit)
+            .sheet(isPresented: $showingBridgeFolderPicker) {
+                BridgeFolderPicker { url in
+                    appState.setBridgeFolder(url)
+                    Task { await appState.checkCloudSync() }
+                }
+            }
+#endif
         }
     }
 
@@ -97,6 +121,47 @@ struct SettingsView: View {
         }
     }
 }
+
+#if canImport(UIKit)
+private struct BridgeFolderPicker: UIViewControllerRepresentable {
+    let onSelect: (URL) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSelect: onSelect, dismiss: dismiss)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onSelect: (URL) -> Void
+        let dismiss: DismissAction
+
+        init(onSelect: @escaping (URL) -> Void, dismiss: DismissAction) {
+            self.onSelect = onSelect
+            self.dismiss = dismiss
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first {
+                onSelect(url)
+            }
+            dismiss()
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            dismiss()
+        }
+    }
+}
+#endif
 
 private struct ProviderPicker: View {
     let title: String
