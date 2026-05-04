@@ -53,6 +53,9 @@ test("roundtable defaults to grounded interactive discussion", () => {
   assert.match(roundtableRouteSource, /GROUNDED_ROUNDTABLE_PROTOCOL/);
   assert.match(roundtableRouteSource, /humanInterjection/);
   assert.match(roundtableRouteSource, /human_done/);
+  assert.match(roundtableRouteSource, /heartbeat/);
+  assert.match(roundtableRouteSource, /agent_timeout/);
+  assert.match(roundtableRouteSource, /fallback: false/);
 });
 
 test("model routing defaults match product expectations", () => {

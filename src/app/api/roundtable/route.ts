@@ -39,6 +39,18 @@ function isDirectContextQuestion(topic: string): boolean {
   return /定了吗|确定了吗|是否|是不是|有没有|是什么|谁|哪里|何时|为什么|怎么|了吗|了吗？|\?$/.test(topic);
 }
 
+function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`model timed out after ${Math.round(ms / 1000)}s`)), ms);
+  const onAbort = () => controller.abort(parent.reason);
+  parent.addEventListener("abort", onAbort, { once: true });
+  controller.signal.addEventListener("abort", () => {
+    clearTimeout(timer);
+    parent.removeEventListener("abort", onAbort);
+  }, { once: true });
+  return controller.signal;
+}
+
 export async function GET(req: NextRequest) {
   const projectSlug = req.nextUrl.searchParams.get("projectSlug");
   const discussionId = req.nextUrl.searchParams.get("discussionId");
@@ -129,6 +141,7 @@ export async function POST(req: NextRequest) {
       const send = (data: object) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
+      let activeHeartbeat: ReturnType<typeof setInterval> | null = null;
 
       try {
         send({ type: "roundtable_start", discussionId: discussion.id, phase, topic, roles });
@@ -171,13 +184,30 @@ export async function POST(req: NextRequest) {
               compact: false,
               includeCurrentPhase: true,
             });
-            send({ type: "agent_start", role, label: roleAlias(role), round });
+            send({ type: "agent_start", role, label: roleAlias(role), round, provider: effectiveProvider });
 
-            const raw = await complete(effectiveProvider, ctx.messages, {
-              system: ctx.system,
-              maxTokens: directContextQuestion ? 700 : 1400,
-              temperature: directContextQuestion ? 0.2 : 0.45,
-            }, req.signal);
+            activeHeartbeat = setInterval(() => {
+              send({ type: "heartbeat", role, label: roleAlias(role), round, provider: effectiveProvider });
+            }, 15_000);
+
+            let raw = "";
+            try {
+              raw = await complete(effectiveProvider, ctx.messages, {
+                system: ctx.system,
+                maxTokens: directContextQuestion ? 700 : 1400,
+                temperature: directContextQuestion ? 0.2 : 0.45,
+                fallback: false,
+              }, timeoutSignal(req.signal, directContextQuestion ? 45_000 : 75_000));
+            } catch (err) {
+              const error = err instanceof Error ? err.message : String(err);
+              send({ type: "agent_timeout", role, label: roleAlias(role), round, provider: effectiveProvider, error });
+              continue;
+            } finally {
+              if (activeHeartbeat) {
+                clearInterval(activeHeartbeat);
+                activeHeartbeat = null;
+              }
+            }
             const content = raw.replace(/\n?\[PASS\]\n?/g, "").trim();
             const passed = raw.includes("[PASS]") || content.length === 0;
 
@@ -247,6 +277,7 @@ export async function POST(req: NextRequest) {
         console.error("roundtable error:", err);
         send({ type: "error", error: err instanceof Error ? err.message : String(err) });
       } finally {
+        if (activeHeartbeat) clearInterval(activeHeartbeat);
         controller.close();
       }
     },

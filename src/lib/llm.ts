@@ -16,6 +16,7 @@ export interface LLMOptions {
   maxTokens?: number;
   temperature?: number;
   system?: string;
+  fallback?: boolean;
   // Enable extended thinking for Claude. Default: false.
   // Use for creative/strategic tasks (write, architect, review).
   // Do NOT use for utility calls (summarize, continuity check, phase summary).
@@ -305,6 +306,7 @@ export async function complete(
   try {
     return await completeOnce(provider, messages, opts, signal);
   } catch (err) {
+    if (opts.fallback === false) throw err;
     console.warn(`[llm] ${provider} failed, trying fallback:`, err instanceof Error ? err.message : err);
     for (const fallback of getFallbacks(provider)) {
       try {

@@ -145,6 +145,7 @@ struct MasterMindsAPI {
                 do {
                     var request = try makeRequest(path: "/api/roundtable", method: "POST")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.timeoutInterval = 600
                     request.httpBody = try encoder.encode(RoundtablePayload(
                         projectSlug: projectSlug,
                         phase: phase,

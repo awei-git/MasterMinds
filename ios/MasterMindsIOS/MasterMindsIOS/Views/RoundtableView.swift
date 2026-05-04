@@ -750,6 +750,8 @@ private struct RoundtableLogRow: View {
         case "round_start": return "新一轮"
         case "human_done": return "你的回复"
         case "agent_start": return "准备发言"
+        case "heartbeat": return "等待模型"
+        case "agent_timeout": return "模型超时"
         case "agent_done": return "发言完成"
         case "agent_pass": return "跳过"
         case "round_done": return "本轮结束"

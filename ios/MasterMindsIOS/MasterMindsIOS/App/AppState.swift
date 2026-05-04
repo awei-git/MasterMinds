@@ -423,6 +423,10 @@ final class AppState: ObservableObject {
             return "第 \(event.round ?? 1) 轮开始"
         case "agent_start":
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 正在发言"
+        case "heartbeat":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 仍在等待模型返回"
+        case "agent_timeout":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 超时，已跳过"
         case "agent_done":
             return "收到 \(event.label ?? WorkflowRole.alias(event.role ?? "")) 发言"
         case "human_done":
