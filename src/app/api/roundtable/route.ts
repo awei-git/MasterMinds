@@ -51,6 +51,35 @@ function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
   return controller.signal;
 }
 
+async function completeWithTimedFallback(
+  primaryProvider: ModelProvider,
+  messages: Parameters<typeof complete>[1],
+  options: Parameters<typeof complete>[2],
+  signal: AbortSignal,
+  timeoutMs: number,
+  onAttempt: (provider: ModelProvider, attempt: number) => void,
+  onFailure: (provider: ModelProvider, error: string, attempt: number) => void,
+): Promise<{ provider: ModelProvider; text: string }> {
+  const providers: ModelProvider[] = ([primaryProvider, "gpt", "local"] as ModelProvider[])
+    .filter((value, index, array) => array.indexOf(value) === index);
+
+  let lastError = "model failed";
+  for (const [index, provider] of providers.entries()) {
+    onAttempt(provider, index + 1);
+    try {
+      const text = await complete(provider, messages, {
+        ...options,
+        fallback: false,
+      }, timeoutSignal(signal, timeoutMs));
+      return { provider, text };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      onFailure(provider, lastError, index + 1);
+    }
+  }
+  throw new Error(lastError);
+}
+
 export async function GET(req: NextRequest) {
   const projectSlug = req.nextUrl.searchParams.get("projectSlug");
   const discussionId = req.nextUrl.searchParams.get("discussionId");
@@ -191,13 +220,29 @@ export async function POST(req: NextRequest) {
             }, 15_000);
 
             let raw = "";
+            let usedProvider = effectiveProvider;
             try {
-              raw = await complete(effectiveProvider, ctx.messages, {
-                system: ctx.system,
-                maxTokens: directContextQuestion ? 700 : 1400,
-                temperature: directContextQuestion ? 0.2 : 0.45,
-                fallback: false,
-              }, timeoutSignal(req.signal, directContextQuestion ? 45_000 : 75_000));
+              const result = await completeWithTimedFallback(
+                effectiveProvider,
+                ctx.messages,
+                {
+                  system: ctx.system,
+                  maxTokens: directContextQuestion ? 700 : 1400,
+                  temperature: directContextQuestion ? 0.2 : 0.45,
+                },
+                req.signal,
+                directContextQuestion ? 45_000 : 75_000,
+                (attemptProvider, attempt) => {
+                  if (attempt > 1) {
+                    send({ type: "agent_fallback", role, label: roleAlias(role), round, provider: attemptProvider, attempt });
+                  }
+                },
+                (failedProvider, error, attempt) => {
+                  send({ type: "agent_provider_failed", role, label: roleAlias(role), round, provider: failedProvider, attempt, error });
+                },
+              );
+              raw = result.text;
+              usedProvider = result.provider;
             } catch (err) {
               const error = err instanceof Error ? err.message : String(err);
               send({ type: "agent_timeout", role, label: roleAlias(role), round, provider: effectiveProvider, error });
@@ -219,12 +264,12 @@ export async function POST(req: NextRequest) {
                   projectId: project.id,
                   discussionId: discussion.id,
                   role,
-                  model: effectiveProvider,
+                  model: usedProvider,
                   phase,
                   content,
                 },
               });
-              send({ type: "agent_done", role, label: roleAlias(role), round, message: msg });
+              send({ type: "agent_done", role, label: roleAlias(role), round, provider: usedProvider, message: msg });
             } else {
               send({ type: "agent_pass", role, label: roleAlias(role), round });
             }

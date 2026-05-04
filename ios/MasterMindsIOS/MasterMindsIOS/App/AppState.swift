@@ -425,6 +425,10 @@ final class AppState: ObservableObject {
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 正在发言"
         case "heartbeat":
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 仍在等待模型返回"
+        case "agent_provider_failed":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 当前模型失败，准备 fallback"
+        case "agent_fallback":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 切换到备用模型"
         case "agent_timeout":
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 超时，已跳过"
         case "agent_done":

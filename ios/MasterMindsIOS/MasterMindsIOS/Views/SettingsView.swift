@@ -107,6 +107,7 @@ private struct ProviderPicker: View {
         ("claude-code", "Claude"),
         ("deepseek", "DeepSeek"),
         ("gemini", "Gemini"),
+        ("local", "Local"),
     ]
 
     var body: some View {

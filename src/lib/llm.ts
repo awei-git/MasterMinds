@@ -4,7 +4,7 @@ import { spawn } from "child_process";
 
 // --- Types ---
 
-export type ModelProvider = "claude" | "claude-code" | "gpt" | "deepseek" | "gemini";
+export type ModelProvider = "claude" | "claude-code" | "gpt" | "deepseek" | "gemini" | "local";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -31,6 +31,7 @@ const MAX_OUTPUT: Record<ModelProvider, number> = {
   gpt: 32000,
   deepseek: 16000,
   gemini: 65536,
+  local: 8192,
 };
 
 export interface StreamCallbacks {
@@ -49,6 +50,7 @@ const MODEL_DEFAULTS: Record<ModelProvider, string> = {
   gpt: "gpt-5.4",               // Parallel reviewer
   deepseek: "deepseek-reasoner", // Parallel reviewer (reasoning)
   gemini: "gemini-2.5-pro",     // Parallel reviewer (long context, consistency checks)
+  local: process.env.LOCAL_LLM_MODEL ?? "Qwen3.5-27B-4bit",
 };
 
 // Lighter model for internal utility calls (summarization, chapter summaries, continuity checks)
@@ -58,6 +60,7 @@ export const MODEL_UTILITY: Record<ModelProvider, string> = {
   gpt: "gpt-4.1-mini",
   deepseek: "deepseek-chat",
   gemini: "gemini-2.5-flash",
+  local: process.env.LOCAL_LLM_MODEL ?? "Qwen3.5-27B-4bit",
 };
 
 // --- Lazy-init clients ---
@@ -66,6 +69,7 @@ let anthropicClient: Anthropic | null = null;
 let openaiClient: OpenAI | null = null;
 let deepseekClient: OpenAI | null = null;
 let geminiClient: OpenAI | null = null;
+let localClient: OpenAI | null = null;
 
 function getAnthropic(): Anthropic {
   if (!anthropicClient) {
@@ -99,6 +103,16 @@ function getGemini(): OpenAI {
     });
   }
   return geminiClient;
+}
+
+function getLocal(): OpenAI {
+  if (!localClient) {
+    localClient = new OpenAI({
+      baseURL: process.env.LOCAL_LLM_BASE_URL ?? "http://127.0.0.1:8800/v1",
+      apiKey: process.env.LOCAL_LLM_API_KEY ?? "local",
+    });
+  }
+  return localClient;
 }
 
 // --- Claude Code CLI helpers ---
@@ -226,9 +240,9 @@ async function streamViaCLI(
   });
 }
 
-// --- Fallback chain: if a provider fails, try claude-code then gpt ---
+// --- Fallback chain: if a provider fails, try GPT then the local LLM ---
 
-const FALLBACK_CHAIN: ModelProvider[] = ["claude-code", "gpt"];
+const FALLBACK_CHAIN: ModelProvider[] = ["gpt", "local"];
 
 function getFallbacks(failedProvider: ModelProvider): ModelProvider[] {
   return FALLBACK_CHAIN.filter((p) => p !== failedProvider);
@@ -274,7 +288,7 @@ async function completeOnce(
   }
 
   // OpenAI-compatible (GPT, DeepSeek, Gemini)
-  const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : getDeepSeek();
+  const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : provider === "local" ? getLocal() : getDeepSeek();
   const model = opts.model ?? MODEL_DEFAULTS[provider];
 
   const allMessages = opts.system
@@ -366,7 +380,7 @@ async function streamOnce(
     }
   } else {
     // OpenAI-compatible
-    const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : getDeepSeek();
+  const client = provider === "gpt" ? getOpenAI() : provider === "gemini" ? getGemini() : provider === "local" ? getLocal() : getDeepSeek();
     const model = opts.model ?? MODEL_DEFAULTS[provider];
 
     const allMessages = opts.system

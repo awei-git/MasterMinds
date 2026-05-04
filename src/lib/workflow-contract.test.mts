@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const workflowSource = readFileSync(new URL("./workflow.ts", import.meta.url), "utf-8");
 const contextSource = readFileSync(new URL("./agents/context.ts", import.meta.url), "utf-8");
+const llmSource = readFileSync(new URL("./llm.ts", import.meta.url), "utf-8");
 const modelRoutingSource = readFileSync(new URL("./model-routing.ts", import.meta.url), "utf-8");
 const roundtableRouteSource = readFileSync(new URL("../app/api/roundtable/route.ts", import.meta.url), "utf-8");
 
@@ -56,9 +57,14 @@ test("roundtable defaults to grounded interactive discussion", () => {
   assert.match(roundtableRouteSource, /heartbeat/);
   assert.match(roundtableRouteSource, /agent_timeout/);
   assert.match(roundtableRouteSource, /fallback: false/);
+  assert.match(roundtableRouteSource, /completeWithTimedFallback/);
+  assert.match(roundtableRouteSource, /\[primaryProvider, "gpt", "local"\]/);
 });
 
 test("model routing defaults match product expectations", () => {
+  assert.match(llmSource, /local/);
+  assert.match(llmSource, /LOCAL_LLM_BASE_URL/);
+  assert.match(llmSource, /FALLBACK_CHAIN: ModelProvider\[\] = \["gpt", "local"\]/);
   assert.match(modelRoutingSource, /ideaProvider: "gpt"/);
   assert.match(modelRoutingSource, /structureProvider: "claude-code"/);
   assert.match(modelRoutingSource, /reviewProvider: "gemini"/);
