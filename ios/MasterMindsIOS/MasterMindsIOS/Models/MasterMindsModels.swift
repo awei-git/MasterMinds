@@ -192,6 +192,15 @@ enum Workflow {
         }
     }
 
+    static func normalizePhase(_ phase: String) -> String {
+        switch phase {
+        case "draft", "review", "revision", "final":
+            "expansion"
+        default:
+            phase
+        }
+    }
+
     static func writingTasks(for phase: String) -> [WritingTaskAction] {
         switch phase {
         case "bible":

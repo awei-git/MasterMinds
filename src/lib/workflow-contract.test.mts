@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const workflowSource = readFileSync(new URL("./workflow.ts", import.meta.url), "utf-8");
+const contextSource = readFileSync(new URL("./agents/context.ts", import.meta.url), "utf-8");
+const roundtableRouteSource = readFileSync(new URL("../app/api/roundtable/route.ts", import.meta.url), "utf-8");
 
 test("workflow exposes the five PLAN phases in order", () => {
   const expected = ["conception", "bible", "structure", "scriptment", "expansion"];
@@ -32,4 +34,11 @@ test("legacy phases normalize into expansion", () => {
   assert.match(workflowSource, /phase === "revision"/);
   assert.match(workflowSource, /phase === "final"/);
   assert.match(workflowSource, /return "expansion"/);
+});
+
+test("roundtable agents receive current phase summaries", () => {
+  assert.match(contextSource, /includeCurrentPhase\?: boolean/);
+  assert.match(contextSource, /includeCurrentPhase \? currentIdx \+ 1 : currentIdx/);
+  assert.match(roundtableRouteSource, /includeCurrentPhase: true/);
+  assert.match(roundtableRouteSource, /compact: false/);
 });

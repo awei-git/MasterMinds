@@ -5,13 +5,6 @@ struct RoundtableView: View {
     @EnvironmentObject private var appState: AppState
     let project: Project
 
-    @State private var topic = ""
-    @State private var events: [RoundtableEvent] = []
-    @State private var isRunning = false
-    @State private var maxRounds = 2
-    @State private var statusMessage = "等待议题"
-    @State private var runError: String?
-    @State private var currentRunId = UUID().uuidString
     @State private var isRecordExpanded = false
     @State private var isThreadOpen = false
 
@@ -37,7 +30,7 @@ struct RoundtableView: View {
         .navigationDestination(isPresented: $isThreadOpen) {
             RoundtableThreadView(
                 project: project,
-                topic: topic,
+                topic: topicText,
                 status: statusMessage,
                 error: runError,
                 events: discussionEvents,
@@ -80,7 +73,7 @@ struct RoundtableView: View {
                 )
 
                 MeetingRecordPanel(
-                    topic: topic,
+                    topic: topicText,
                     status: statusMessage,
                     error: runError,
                     events: events,
@@ -103,7 +96,7 @@ struct RoundtableView: View {
                     .foregroundStyle(AppTheme.muted)
             }
 
-            TextField("本轮要解决的创作问题", text: $topic, axis: .vertical)
+            TextField("本轮要解决的创作问题", text: topic, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(AppTheme.prose(17))
                 .foregroundStyle(AppTheme.ink)
@@ -119,9 +112,9 @@ struct RoundtableView: View {
                 Label("轮次", systemImage: "repeat")
                     .font(AppTheme.title(16))
                 Spacer()
-                Stepper("最多 \(maxRounds) 轮", value: $maxRounds, in: 1...3)
+                Stepper("最多 \(session.maxRounds) 轮", value: maxRounds, in: 1...3)
                     .labelsHidden()
-                Text("\(maxRounds)")
+                Text("\(session.maxRounds)")
                     .font(.title3.monospacedDigit().weight(.semibold))
                     .frame(width: 28, alignment: .trailing)
             }
@@ -154,7 +147,7 @@ struct RoundtableView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
+            .disabled(topicText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
             .id("run-button")
 
             RoundtableRunStatus(
@@ -170,7 +163,7 @@ struct RoundtableView: View {
         VStack(spacing: 14) {
             RoundtableThreadPanel(
                 project: project,
-                topic: topic,
+                topic: topicText,
                 status: statusMessage,
                 error: runError,
                 events: discussionEvents,
@@ -178,7 +171,7 @@ struct RoundtableView: View {
             )
 
             MeetingRecordPanel(
-                topic: topic,
+                topic: topicText,
                 status: statusMessage,
                 error: runError,
                 events: events,
@@ -194,10 +187,32 @@ struct RoundtableView: View {
     }
 
     private var discussionEvents: [RoundtableEvent] {
-        events.filter { event in
-            event.message != nil || event.type == "error"
-        }
+        session.discussionEvents
     }
+
+    private var session: RoundtableSessionState {
+        appState.roundtableSession(projectSlug: project.slug, phase: project.phase)
+    }
+
+    private var topic: Binding<String> {
+        Binding(
+            get: { session.topic },
+            set: { appState.updateRoundtableTopic(projectSlug: project.slug, phase: project.phase, topic: $0) }
+        )
+    }
+
+    private var maxRounds: Binding<Int> {
+        Binding(
+            get: { session.maxRounds },
+            set: { appState.updateRoundtableMaxRounds(projectSlug: project.slug, phase: project.phase, maxRounds: $0) }
+        )
+    }
+
+    private var topicText: String { session.topic }
+    private var events: [RoundtableEvent] { session.events }
+    private var isRunning: Bool { session.isRunning }
+    private var statusMessage: String { session.statusMessage }
+    private var runError: String? { session.runError }
 
     private var seats: [(role: String, brief: String)] {
         [
@@ -212,7 +227,7 @@ struct RoundtableView: View {
 
     private func startRoundtable() async {
         guard !isRunning else { return }
-        let trimmedTopic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTopic = topicText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTopic.isEmpty else { return }
 #if canImport(UIKit)
         KeyboardDismissal.dismiss()
@@ -220,89 +235,8 @@ struct RoundtableView: View {
         if horizontalSizeClass == .compact {
             isThreadOpen = true
         }
-        currentRunId = UUID().uuidString
-        isRunning = true
-        events.removeAll()
-        runError = nil
         isRecordExpanded = false
-        statusMessage = "正在连接 \(appState.serverBaseURL)"
-        defer { isRunning = false }
-
-        do {
-            let stream = appState.api.roundtable(
-                projectSlug: project.slug,
-                phase: project.phase,
-                topic: trimmedTopic,
-                maxRounds: maxRounds
-            )
-            var receivedAnyEvent = false
-            for try await event in stream {
-                receivedAnyEvent = true
-                events.append(event)
-                statusMessage = status(for: event)
-                if event.type == "error" {
-                    let message = event.error ?? "圆桌失败"
-                    runError = message
-                    appState.lastError = message
-                }
-            }
-            if !receivedAnyEvent {
-                let message = "服务器没有返回圆桌事件。请检查服务端日志或重试。"
-                runError = message
-                statusMessage = "圆桌失败"
-                events.append(errorEvent(message))
-            } else if runError == nil {
-                statusMessage = "圆桌完成"
-            }
-        } catch {
-            let message = error.localizedDescription
-            runError = message
-            statusMessage = "圆桌失败"
-            events.append(errorEvent(message))
-            appState.lastError = message
-        }
-    }
-
-    private func status(for event: RoundtableEvent) -> String {
-        switch event.type {
-        case "roundtable_start":
-            return "已连接，圆桌开始"
-        case "round_start":
-            return "第 \(event.round ?? 1) 轮开始"
-        case "agent_start":
-            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 正在发言"
-        case "agent_done":
-            return "收到 \(event.label ?? WorkflowRole.alias(event.role ?? "")) 发言"
-        case "agent_pass":
-            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 暂无补充"
-        case "chronicler_start":
-            return "史官正在整理纪要"
-        case "chronicler_done":
-            return "史官纪要完成"
-        case "round_done":
-            return "本轮结束"
-        case "done":
-            return "圆桌完成"
-        case "error":
-            return "圆桌失败"
-        default:
-            return event.type
-        }
-    }
-
-    private func errorEvent(_ message: String) -> RoundtableEvent {
-        RoundtableEvent(
-            type: "error",
-            discussionId: currentRunId,
-            phase: project.phase,
-            topic: nil,
-            roles: nil,
-            role: nil,
-            label: "错误",
-            round: nil,
-            error: message,
-            message: nil
-        )
+        await appState.startRoundtable(projectSlug: project.slug, phase: project.phase)
     }
 }
 

@@ -124,14 +124,21 @@ function extractConstraints(content: string): string {
   return result.join("\n");
 }
 
-function loadPhaseSummaries(slug: string, currentPhase?: string, compact?: boolean): string {
+function loadPhaseSummaries(
+  slug: string,
+  currentPhase?: string,
+  compact?: boolean,
+  includeCurrentPhase?: boolean,
+): string {
   const dir = join(projectDir(slug), "phases");
   const parts: string[] = [];
 
-  // Load all completed phase summaries (before current phase)
+  // Load completed phase summaries. Roundtable calls also include the current
+  // phase summary, because users can start a follow-up discussion from it.
   const normalized = currentPhase ? normalizePhase(currentPhase) : undefined;
   const currentIdx = normalized ? PHASE_ORDER.indexOf(normalized) : PHASE_ORDER.length;
-  for (let i = 0; i < currentIdx; i++) {
+  const endIdx = includeCurrentPhase ? currentIdx + 1 : currentIdx;
+  for (let i = 0; i < Math.min(endIdx, PHASE_ORDER.length); i++) {
     const phase = PHASE_ORDER[i];
     const content = readIfExists(join(dir, `${phase}.md`));
     if (!content) continue;
@@ -146,7 +153,7 @@ function loadPhaseSummaries(slug: string, currentPhase?: string, compact?: boole
   if (parts.length === 0) return "";
   return `# 已锁定的阶段决策（硬约束）
 
-⚠️ 以下是前序阶段已确定的内容。这些决策具有约束力：
+⚠️ 以下是前序阶段和当前阶段纪要中已确定的内容。这些决策具有约束力：
 - 构思阶段确定的主题、核心冲突、logline → 不可偏离
 - 世界与角色阶段确定的设定、人物、规则 → 不可矛盾
 - 结构阶段确定的节拍、大纲 → 不可跳过或重排
@@ -397,6 +404,7 @@ export interface ContextRequest {
   extraContext?: string; // anything else to inject
   skillGroup?: string; // override default skill group (e.g. "revision", "dialogue")
   compact?: boolean; // use compressed phase summaries (for draft/review/final)
+  includeCurrentPhase?: boolean; // roundtable needs the visible current-phase briefing too
 }
 
 export function buildContext(req: ContextRequest): {
@@ -430,7 +438,12 @@ export function buildContext(req: ContextRequest): {
   // In scriptment/expansion phases, use compact mode by default (only ✓ items)
   const normalizedPhase = req.phase ? normalizePhase(req.phase) : undefined;
   const useCompact = req.compact ?? ["scriptment", "expansion"].includes(normalizedPhase ?? "");
-  const phaseSummaries = loadPhaseSummaries(req.projectSlug, req.phase, useCompact);
+  const phaseSummaries = loadPhaseSummaries(
+    req.projectSlug,
+    req.phase,
+    useCompact,
+    req.includeCurrentPhase,
+  );
   if (phaseSummaries) systemParts.push(phaseSummaries);
 
   // Draft progress: tell the agent what's already been written

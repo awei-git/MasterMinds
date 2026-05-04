@@ -143,7 +143,14 @@ export async function POST(req: NextRequest) {
                 : "请只回应上一轮的分歧；如果没有新增意见，输出 [PASS]。",
             ].filter(Boolean).join("\n\n---\n\n");
 
-            const ctx = buildContext({ projectSlug, role, task: prompt, phase, compact: true });
+            const ctx = buildContext({
+              projectSlug,
+              role,
+              task: prompt,
+              phase,
+              compact: false,
+              includeCurrentPhase: true,
+            });
             send({ type: "agent_start", role, label: roleAlias(role), round });
 
             const raw = await complete(provider, ctx.messages, {
@@ -188,7 +195,8 @@ export async function POST(req: NextRequest) {
             role: "chronicler",
             task: summaryPrompt,
             phase,
-            compact: true,
+            compact: false,
+            includeCurrentPhase: true,
           });
           send({ type: "chronicler_start", role: "chronicler", label: roleAlias("chronicler") });
           const summary = await complete(provider, ctx.messages, {

@@ -15,6 +15,22 @@ enum CloudSyncState: Equatable {
     case unavailable(String)
 }
 
+struct RoundtableSessionState: Equatable {
+    var topic = ""
+    var events: [RoundtableEvent] = []
+    var isRunning = false
+    var maxRounds = 2
+    var statusMessage = "等待议题"
+    var runError: String?
+    var currentRunId = UUID().uuidString
+
+    var discussionEvents: [RoundtableEvent] {
+        events.filter { event in
+            event.message != nil || event.type == "error"
+        }
+    }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var serverBaseURL: String {
@@ -29,6 +45,7 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
     @Published var connectionState: ServerConnectionState = .unknown
     @Published var cloudSyncState: CloudSyncState = .unknown
+    @Published private(set) var roundtableSessions: [String: RoundtableSessionState] = [:]
 
     private static let serverKey = "serverBaseURL"
     static let defaultServerBaseURL = "http://192.168.1.232:3000"
@@ -217,9 +234,137 @@ final class AppState: ObservableObject {
         }
     }
 
+    func roundtableSession(projectSlug: String, phase: String) -> RoundtableSessionState {
+        roundtableSessions[roundtableSessionKey(projectSlug: projectSlug, phase: phase)] ?? RoundtableSessionState()
+    }
+
+    func updateRoundtableTopic(projectSlug: String, phase: String, topic: String) {
+        let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
+        var session = roundtableSessions[key] ?? RoundtableSessionState()
+        session.topic = topic
+        roundtableSessions[key] = session
+    }
+
+    func updateRoundtableMaxRounds(projectSlug: String, phase: String, maxRounds: Int) {
+        let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
+        var session = roundtableSessions[key] ?? RoundtableSessionState()
+        session.maxRounds = max(1, min(maxRounds, 3))
+        roundtableSessions[key] = session
+    }
+
+    func startRoundtable(projectSlug: String, phase: String) async {
+        let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
+        var session = roundtableSessions[key] ?? RoundtableSessionState()
+        guard !session.isRunning else { return }
+
+        let trimmedTopic = session.topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTopic.isEmpty else { return }
+
+        session.currentRunId = UUID().uuidString
+        session.isRunning = true
+        session.events.removeAll()
+        session.runError = nil
+        session.statusMessage = "正在连接 \(serverBaseURL)"
+        roundtableSessions[key] = session
+
+        defer {
+            var latest = roundtableSessions[key] ?? session
+            latest.isRunning = false
+            roundtableSessions[key] = latest
+        }
+
+        do {
+            let stream = api.roundtable(
+                projectSlug: projectSlug,
+                phase: phase,
+                topic: trimmedTopic,
+                maxRounds: session.maxRounds
+            )
+            var receivedAnyEvent = false
+            for try await event in stream {
+                receivedAnyEvent = true
+                var latest = roundtableSessions[key] ?? session
+                latest.events.append(event)
+                latest.statusMessage = status(for: event)
+                if event.type == "error" {
+                    let message = event.error ?? "圆桌失败"
+                    latest.runError = message
+                    lastError = message
+                }
+                roundtableSessions[key] = latest
+            }
+            var latest = roundtableSessions[key] ?? session
+            if !receivedAnyEvent {
+                let message = "服务器没有返回圆桌事件。请检查服务端日志或重试。"
+                latest.runError = message
+                latest.statusMessage = "圆桌失败"
+                latest.events.append(errorEvent(message, discussionId: latest.currentRunId, phase: phase))
+            } else if latest.runError == nil {
+                latest.statusMessage = "圆桌完成"
+            }
+            connectionState = .online
+            roundtableSessions[key] = latest
+        } catch {
+            let message = error.localizedDescription
+            var latest = roundtableSessions[key] ?? session
+            latest.runError = message
+            latest.statusMessage = "圆桌失败"
+            latest.events.append(errorEvent(message, discussionId: latest.currentRunId, phase: phase))
+            connectionState = .offline(message)
+            lastError = message
+            roundtableSessions[key] = latest
+        }
+    }
+
     private func updateCloudState(didSync: Bool) {
         cloudSyncState = didSync
             ? .available
             : .unavailable(cloudStore.syncIssueDescription())
+    }
+
+    private func roundtableSessionKey(projectSlug: String, phase: String) -> String {
+        "\(projectSlug)::\(Workflow.normalizePhase(phase))"
+    }
+
+    private func status(for event: RoundtableEvent) -> String {
+        switch event.type {
+        case "roundtable_start":
+            return "已连接，圆桌开始"
+        case "round_start":
+            return "第 \(event.round ?? 1) 轮开始"
+        case "agent_start":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 正在发言"
+        case "agent_done":
+            return "收到 \(event.label ?? WorkflowRole.alias(event.role ?? "")) 发言"
+        case "agent_pass":
+            return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 暂无补充"
+        case "chronicler_start":
+            return "史官正在整理纪要"
+        case "chronicler_done":
+            return "史官纪要完成"
+        case "round_done":
+            return "本轮结束"
+        case "done":
+            return "圆桌完成"
+        case "error":
+            return "圆桌失败"
+        default:
+            return event.type
+        }
+    }
+
+    private func errorEvent(_ message: String, discussionId: String, phase: String) -> RoundtableEvent {
+        RoundtableEvent(
+            type: "error",
+            discussionId: discussionId,
+            phase: phase,
+            topic: nil,
+            roles: nil,
+            role: nil,
+            label: "错误",
+            round: nil,
+            error: message,
+            message: nil
+        )
     }
 }
