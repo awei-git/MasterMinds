@@ -79,7 +79,9 @@ struct MasterMindsAPI {
         kind: String,
         provider: String = "claude-code",
         chapterId: String? = nil,
-        instruction: String? = nil
+        instruction: String? = nil,
+        providerSettings: ModelProviderSettings = .defaults,
+        writingLanguage: String = "zh"
     ) async throws -> WritingTaskResult {
         try await request(
             path: "/api/writing-tasks",
@@ -89,7 +91,9 @@ struct MasterMindsAPI {
                 kind: kind,
                 provider: provider,
                 instruction: instruction,
-                chapterId: chapterId
+                chapterId: chapterId,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage
             )
         )
     }
@@ -130,7 +134,11 @@ struct MasterMindsAPI {
         topic: String,
         provider: String = "claude-code",
         maxRounds: Int = 2,
-        generateSummary: Bool = false
+        generateSummary: Bool = false,
+        providerSettings: ModelProviderSettings = .defaults,
+        writingLanguage: String = "zh",
+        discussionId: String? = nil,
+        humanInterjection: String? = nil
     ) -> AsyncThrowingStream<RoundtableEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -143,7 +151,11 @@ struct MasterMindsAPI {
                         topic: topic,
                         provider: provider,
                         maxRounds: maxRounds,
-                        generateSummary: generateSummary
+                        generateSummary: generateSummary,
+                        providerSettings: providerSettings,
+                        writingLanguage: writingLanguage,
+                        discussionId: discussionId,
+                        humanInterjection: humanInterjection
                     ))
 
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -248,6 +260,10 @@ private struct RoundtablePayload: Encodable {
     let provider: String
     let maxRounds: Int
     let generateSummary: Bool
+    let providerSettings: ModelProviderSettings
+    let writingLanguage: String
+    let discussionId: String?
+    let humanInterjection: String?
 }
 
 private struct WritingTaskPayload: Encodable {
@@ -256,6 +272,8 @@ private struct WritingTaskPayload: Encodable {
     let provider: String
     let instruction: String?
     let chapterId: String?
+    let providerSettings: ModelProviderSettings
+    let writingLanguage: String
 }
 
 private struct SaveWritingTaskPayload: Encodable {

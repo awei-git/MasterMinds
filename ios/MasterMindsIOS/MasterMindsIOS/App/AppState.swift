@@ -23,6 +23,7 @@ struct RoundtableSessionState: Equatable {
     var statusMessage = "等待议题"
     var runError: String?
     var currentRunId = UUID().uuidString
+    var discussionId: String?
 
     var discussionEvents: [RoundtableEvent] {
         events.filter { event in
@@ -45,9 +46,17 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
     @Published var connectionState: ServerConnectionState = .unknown
     @Published var cloudSyncState: CloudSyncState = .unknown
+    @Published var writingLanguage: String {
+        didSet { UserDefaults.standard.set(writingLanguage, forKey: Self.writingLanguageKey) }
+    }
+    @Published var providerSettings: ModelProviderSettings {
+        didSet { saveProviderSettings() }
+    }
     @Published private(set) var roundtableSessions: [String: RoundtableSessionState] = [:]
 
     private static let serverKey = "serverBaseURL"
+    private static let writingLanguageKey = "writingLanguage"
+    private static let providerSettingsKey = "providerSettings"
     static let defaultServerBaseURL = "http://192.168.1.232:3000"
     private let cloudStore = CloudWritingStore()
     private var roundtableTasks: [String: Task<Void, Never>] = [:]
@@ -64,6 +73,8 @@ final class AppState: ObservableObject {
         }
         serverBaseURL = baseURL
         api = MasterMindsAPI(baseURLString: baseURL)
+        writingLanguage = UserDefaults.standard.string(forKey: Self.writingLanguageKey) ?? "zh"
+        providerSettings = Self.loadProviderSettings()
     }
 
     private static func isDeviceLocalhost(_ url: String) -> Bool {
@@ -217,7 +228,9 @@ final class AppState: ObservableObject {
                 projectSlug: projectSlug,
                 kind: kind,
                 chapterId: chapterId,
-                instruction: instruction
+                instruction: instruction,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage
             )
             connectionState = .online
             if let chapterId, kind != "chapter_briefing" {
@@ -254,22 +267,40 @@ final class AppState: ObservableObject {
     }
 
     func startRoundtable(projectSlug: String, phase: String) async {
+        await runRoundtableRequest(projectSlug: projectSlug, phase: phase, humanInterjection: nil)
+    }
+
+    func continueRoundtable(projectSlug: String, phase: String, message: String) async {
+        await runRoundtableRequest(projectSlug: projectSlug, phase: phase, humanInterjection: message)
+    }
+
+    private func runRoundtableRequest(projectSlug: String, phase: String, humanInterjection: String?) async {
         let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
         var session = roundtableSessions[key] ?? RoundtableSessionState()
         guard !session.isRunning else { return }
 
         let trimmedTopic = session.topic.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTopic.isEmpty else { return }
+        let trimmedInterjection = humanInterjection?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTopic.isEmpty || !(trimmedInterjection ?? "").isEmpty else { return }
 
         session.currentRunId = UUID().uuidString
         session.isRunning = true
-        session.events.removeAll()
+        if trimmedInterjection == nil {
+            session.events.removeAll()
+            session.discussionId = nil
+        }
         session.runError = nil
         session.statusMessage = "正在连接 \(serverBaseURL)"
         roundtableSessions[key] = session
 
         let task = Task {
-            await runRoundtable(projectSlug: projectSlug, phase: phase, key: key, initialSession: session)
+            await runRoundtable(
+                projectSlug: projectSlug,
+                phase: phase,
+                key: key,
+                initialSession: session,
+                humanInterjection: trimmedInterjection
+            )
         }
         roundtableTasks[key] = task
         await task.value
@@ -292,7 +323,8 @@ final class AppState: ObservableObject {
         projectSlug: String,
         phase: String,
         key: String,
-        initialSession session: RoundtableSessionState
+        initialSession session: RoundtableSessionState,
+        humanInterjection: String?
     ) async {
         defer {
             var latest = roundtableSessions[key] ?? session
@@ -307,13 +339,20 @@ final class AppState: ObservableObject {
                 phase: phase,
                 topic: session.topic.trimmingCharacters(in: .whitespacesAndNewlines),
                 maxRounds: session.maxRounds,
-                generateSummary: false
+                generateSummary: false,
+                providerSettings: providerSettings,
+                writingLanguage: writingLanguage,
+                discussionId: session.discussionId,
+                humanInterjection: humanInterjection
             )
             var receivedAnyEvent = false
             for try await event in stream {
                 try Task.checkCancellation()
                 receivedAnyEvent = true
                 var latest = roundtableSessions[key] ?? session
+                if let discussionId = event.discussionId {
+                    latest.discussionId = discussionId
+                }
                 latest.events.append(event)
                 latest.statusMessage = status(for: event)
                 if event.type == "error" {
@@ -357,6 +396,21 @@ final class AppState: ObservableObject {
             : .unavailable(cloudStore.syncIssueDescription())
     }
 
+    private static func loadProviderSettings() -> ModelProviderSettings {
+        guard
+            let data = UserDefaults.standard.data(forKey: providerSettingsKey),
+            let settings = try? JSONDecoder().decode(ModelProviderSettings.self, from: data)
+        else {
+            return .defaults
+        }
+        return settings
+    }
+
+    private func saveProviderSettings() {
+        guard let data = try? JSONEncoder().encode(providerSettings) else { return }
+        UserDefaults.standard.set(data, forKey: Self.providerSettingsKey)
+    }
+
     private func roundtableSessionKey(projectSlug: String, phase: String) -> String {
         "\(projectSlug)::\(Workflow.normalizePhase(phase))"
     }
@@ -371,6 +425,8 @@ final class AppState: ObservableObject {
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 正在发言"
         case "agent_done":
             return "收到 \(event.label ?? WorkflowRole.alias(event.role ?? "")) 发言"
+        case "human_done":
+            return "已发送你的回复"
         case "agent_pass":
             return "\(event.label ?? WorkflowRole.alias(event.role ?? "")) 暂无补充"
         case "chronicler_start":

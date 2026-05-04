@@ -93,6 +93,22 @@ struct APIErrorResponse: Codable {
     let error: String
 }
 
+struct ModelProviderSettings: Codable, Equatable {
+    var ideaProvider: String
+    var structureProvider: String
+    var reviewProvider: String
+    var chineseWritingProvider: String
+    var englishWritingProvider: String
+
+    static let defaults = ModelProviderSettings(
+        ideaProvider: "gpt",
+        structureProvider: "claude-code",
+        reviewProvider: "gemini",
+        chineseWritingProvider: "deepseek",
+        englishWritingProvider: "gpt"
+    )
+}
+
 struct RoundtableMessage: Identifiable, Codable, Hashable {
     let id: String
     let role: String

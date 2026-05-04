@@ -3,32 +3,17 @@ import { prisma } from "@/lib/db";
 import { stream, type ModelProvider } from "@/lib/llm";
 import { buildContext, hasPhaseSummaries } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
+import { routeProviderForRole, type ProviderSettings, type WritingLanguage } from "@/lib/model-routing";
 import { normalizePhase } from "@/lib/workflow";
 
 /**
- * Multi-model routing: each model does what it's best at.
- *   GPT      — 写 (语感强，感官密度高，bake-off 48-50/50)
- *   Claude   — 评、改 (冷静克制，分析精准)
- *   DeepSeek — 出主意、灵感 (reasoner 发散思维)
- *   Gemini   — 整理、记录、查错 (快，长上下文)
+ * Multi-model routing is centralized in model-routing:
+ *   idea -> GPT
+ *   structure -> Claude
+ *   review/check -> Gemini
+ *   Chinese writing -> DeepSeek
+ *   English writing -> GPT
  */
-function routeProvider(role: RoleName, baseProvider: ModelProvider): ModelProvider {
-  if (baseProvider !== "claude-code") return baseProvider;
-
-  const ROLE_PROVIDER: Partial<Record<RoleName, ModelProvider>> = {
-    writer: "gpt",              // 写：语感、感官密度
-    character: "gpt",           // 角色塑造：也是创作
-    idea: "deepseek",           // 灵感、构思：发散思维
-    architect: "deepseek",      // 结构设计：推理能力
-    editor: "claude-code",      // 审稿、改稿：冷静精准
-    reviewer: "claude-code",    // 独立评审：冷静克制
-    reader: "gemini",           // 评分：快速分析
-    continuity: "gemini",       // 查错：长上下文
-    chronicler: "gemini",       // 整理记录：总结能力
-  };
-
-  return ROLE_PROVIDER[role] ?? "gpt";
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -106,6 +91,8 @@ export async function POST(req: Request) {
     skipSaveAgent = false,
     cleanContext = false,
     skillGroup,
+    providerSettings,
+    writingLanguage = "zh",
   } = body as {
     projectSlug: string;
     role: RoleName;
@@ -115,6 +102,8 @@ export async function POST(req: Request) {
     skipSaveAgent?: boolean;
     cleanContext?: boolean; // revision mode: skip chat history, only send message as-is
     skillGroup?: string; // override skill group (e.g. "revision", "dialogue")
+    providerSettings?: ProviderSettings;
+    writingLanguage?: WritingLanguage;
   };
 
   if (!projectSlug || !message) {
@@ -200,7 +189,7 @@ export async function POST(req: Request) {
   }
 
   // Route to the best provider for this role
-  const effectiveProvider = routeProvider(role, provider);
+  const effectiveProvider = routeProviderForRole(role, provider, providerSettings, writingLanguage);
 
   // Enable extended thinking for creative/strategic roles; skip for utility roles
   const THINKING_ROLES = new Set(["writer", "architect", "editor", "character", "idea"]);

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { complete, type ModelProvider } from "@/lib/llm";
 import { buildContext } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
+import { routeProviderForRole, type ProviderSettings, type WritingLanguage } from "@/lib/model-routing";
 import { normalizePhase, phaseDefinition, writingTaskPrompt } from "@/lib/workflow";
 
 const DATA_DIR = join(process.cwd(), "data");
@@ -29,6 +30,8 @@ interface WritingTaskRequest {
   instruction?: string;
   chapterId?: string;
   save?: boolean;
+  providerSettings?: ProviderSettings;
+  writingLanguage?: WritingLanguage;
 }
 
 function readIfExists(path: string): string {
@@ -114,6 +117,8 @@ export async function POST(req: NextRequest) {
       instruction = "",
       chapterId,
       save = true,
+      providerSettings,
+      writingLanguage = "zh",
     } = body;
 
     if (!projectSlug || !kind) {
@@ -125,6 +130,7 @@ export async function POST(req: NextRequest) {
 
     const phase = normalizePhase(project.phase);
     const role = inferRole(kind, body.role);
+    const effectiveProvider = routeProviderForRole(role, provider, providerSettings, writingLanguage);
     const basePrompt = writingTaskPrompt(kind);
     const phaseDef = phaseDefinition(phase);
     const artifactContext = collectArtifactContext(projectSlug, kind, chapterId);
@@ -147,10 +153,10 @@ export async function POST(req: NextRequest) {
       skillGroup: kind.includes("revision") ? "revision" : undefined,
     });
 
-    const result = await complete(provider, ctx.messages, {
+    const result = await complete(effectiveProvider, ctx.messages, {
       system: ctx.system,
       maxTokens: kind === "scriptment" ? 32000 : 16000,
-      thinking: provider === "claude",
+      thinking: effectiveProvider === "claude",
     }, req.signal);
 
     if (!result?.trim()) {
@@ -167,7 +173,7 @@ export async function POST(req: NextRequest) {
         data: {
           projectId: project.id,
           role,
-          model: provider,
+          model: effectiveProvider,
           phase,
           content: `【独立写作任务：${kind}】\n保存路径：${path.replace(process.cwd() + "/", "")}\n\n${result}`,
           metadata: JSON.stringify({ kind, chapterId, artifactPath: path }),

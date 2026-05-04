@@ -35,7 +35,8 @@ struct RoundtableView: View {
                 error: runError,
                 events: discussionEvents,
                 isRunning: isRunning,
-                onCancel: cancelRoundtable
+                onCancel: cancelRoundtable,
+                onSendReply: sendRoundtableReply
             )
         }
     }
@@ -173,7 +174,8 @@ struct RoundtableView: View {
                 status: statusMessage,
                 error: runError,
                 events: discussionEvents,
-                isRunning: isRunning
+                isRunning: isRunning,
+                onSendReply: sendRoundtableReply
             )
 
             MeetingRecordPanel(
@@ -246,6 +248,12 @@ struct RoundtableView: View {
 
     private func cancelRoundtable() {
         appState.cancelRoundtable(projectSlug: project.slug, phase: project.phase)
+    }
+
+    private func sendRoundtableReply(_ message: String) {
+        Task {
+            await appState.continueRoundtable(projectSlug: project.slug, phase: project.phase, message: message)
+        }
     }
 }
 
@@ -432,6 +440,7 @@ private struct RoundtableThreadView: View {
     let events: [RoundtableEvent]
     let isRunning: Bool
     let onCancel: () -> Void
+    let onSendReply: (String) -> Void
 
     var body: some View {
         RoundtableThreadPanel(
@@ -441,7 +450,8 @@ private struct RoundtableThreadView: View {
             error: error,
             events: events,
             isRunning: isRunning,
-            onCancel: onCancel
+            onCancel: onCancel,
+            onSendReply: onSendReply
         )
         .navigationTitle("圆桌讨论")
         .navigationBarTitleDisplayMode(.inline)
@@ -466,6 +476,7 @@ private struct RoundtableThreadPanel: View {
     let events: [RoundtableEvent]
     let isRunning: Bool
     var onCancel: (() -> Void)? = nil
+    var onSendReply: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -511,9 +522,69 @@ private struct RoundtableThreadPanel: View {
                 error: error,
                 isRunning: isRunning
             )
+
+            if let onSendReply {
+                RoundtableReplyBar(isRunning: isRunning, onSend: onSendReply)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppTheme.page)
+    }
+}
+
+private struct RoundtableReplyBar: View {
+    let isRunning: Bool
+    let onSend: (String) -> Void
+    @State private var text = ""
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("回复圆桌，或回答 agent 的追问", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(AppTheme.prose(16))
+                .foregroundStyle(AppTheme.ink)
+                .lineLimit(1...4)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(AppTheme.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(AppTheme.line)
+                }
+
+            Button {
+                send()
+            } label: {
+                Image(systemName: isRunning ? "hourglass" : "arrow.up.circle.fill")
+                    .font(AppTheme.ui(28, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canSend ? AppTheme.brass : AppTheme.muted)
+            .disabled(!canSend)
+            .accessibilityLabel("发送回复")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(AppTheme.surface)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(AppTheme.line)
+                .frame(height: 1)
+        }
+    }
+
+    private var canSend: Bool {
+        !isRunning && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func send() {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        text = ""
+#if canImport(UIKit)
+        KeyboardDismissal.dismiss()
+#endif
+        onSend(trimmed)
     }
 }
 
@@ -677,6 +748,7 @@ private struct RoundtableLogRow: View {
         switch event.type {
         case "roundtable_start": return "圆桌开始"
         case "round_start": return "新一轮"
+        case "human_done": return "你的回复"
         case "agent_start": return "准备发言"
         case "agent_done": return "发言完成"
         case "agent_pass": return "跳过"

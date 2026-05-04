@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { complete, type ModelProvider } from "@/lib/llm";
 import { buildContext } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
+import { routeProviderForRole, type ProviderSettings, type WritingLanguage } from "@/lib/model-routing";
 import {
   GROUNDED_ROUNDTABLE_PROTOCOL,
   ROUND_TABLE_PROTOCOL,
@@ -22,6 +23,8 @@ interface RoundtableRequest {
   humanInterjection?: string;
   maxRounds?: number;
   generateSummary?: boolean;
+  providerSettings?: ProviderSettings;
+  writingLanguage?: WritingLanguage;
 }
 
 function transcriptForPrompt(items: Array<{ role: string; content: string }>): string {
@@ -66,6 +69,8 @@ export async function POST(req: NextRequest) {
     provider = "claude-code",
     maxRounds = 2,
     generateSummary = false,
+    providerSettings,
+    writingLanguage = "zh",
   } = body;
 
   if (!projectSlug) {
@@ -95,8 +100,9 @@ export async function POST(req: NextRequest) {
 
   if (!discussion) return Response.json({ error: "discussion not found" }, { status: 404 });
 
+  let savedHumanMessage: Awaited<ReturnType<typeof prisma.message.create>> | null = null;
   if (body.humanInterjection?.trim()) {
-    await prisma.message.create({
+    savedHumanMessage = await prisma.message.create({
       data: {
         projectId: project.id,
         discussionId: discussion.id,
@@ -106,7 +112,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } else if (!body.discussionId && body.topic?.trim()) {
-    await prisma.message.create({
+    savedHumanMessage = await prisma.message.create({
       data: {
         projectId: project.id,
         discussionId: discussion.id,
@@ -126,6 +132,9 @@ export async function POST(req: NextRequest) {
 
       try {
         send({ type: "roundtable_start", discussionId: discussion.id, phase, topic, roles });
+        if (savedHumanMessage) {
+          send({ type: "human_done", role: "human", label: roleAlias("human"), message: savedHumanMessage });
+        }
 
         const conversation: Array<{ role: string; content: string }> = (
           await prisma.message.findMany({
@@ -147,12 +156,13 @@ export async function POST(req: NextRequest) {
               GROUNDED_ROUNDTABLE_PROTOCOL,
               prior ? `# 已有发言\n${prior}` : "",
               directContextQuestion
-                ? "这是事实核对问题。先给结论，再列纪要里的具体依据；如果前面已经充分回答且你没有新增具体依据，输出 [PASS]。"
+                ? "这是事实核对问题。每位成员都必须从自己的职责角度回答：先给结论，再列纪要里的具体依据；如果前面已回答，你也要补充验证、风险或缺口。只有纪要里完全没有与你职责相关的依据时，才输出 [PASS]。"
                 : round === 1
                   ? "请按圆桌发言规则给出你的第一轮发言。必须落到当前项目的具体事实、角色、冲突或结构，不要讲创作理念。"
                   : "请只回应上一轮的分歧；如果没有新增具体依据或新增裁决项，输出 [PASS]。",
             ].filter(Boolean).join("\n\n---\n\n");
 
+            const effectiveProvider = routeProviderForRole(role, provider, providerSettings, writingLanguage);
             const ctx = buildContext({
               projectSlug,
               role,
@@ -163,7 +173,7 @@ export async function POST(req: NextRequest) {
             });
             send({ type: "agent_start", role, label: roleAlias(role), round });
 
-            const raw = await complete(provider, ctx.messages, {
+            const raw = await complete(effectiveProvider, ctx.messages, {
               system: ctx.system,
               maxTokens: directContextQuestion ? 700 : 1400,
               temperature: directContextQuestion ? 0.2 : 0.45,
@@ -179,7 +189,7 @@ export async function POST(req: NextRequest) {
                   projectId: project.id,
                   discussionId: discussion.id,
                   role,
-                  model: provider,
+                  model: effectiveProvider,
                   phase,
                   content,
                 },
@@ -200,6 +210,7 @@ export async function POST(req: NextRequest) {
             ROUND_TABLE_PROTOCOL,
             `# 圆桌记录\n${transcriptForPrompt(conversation)}`,
           ].join("\n\n---\n\n");
+          const chroniclerProvider = routeProviderForRole("chronicler", provider, providerSettings, writingLanguage);
           const ctx = buildContext({
             projectSlug,
             role: "chronicler",
@@ -209,7 +220,7 @@ export async function POST(req: NextRequest) {
             includeCurrentPhase: true,
           });
           send({ type: "chronicler_start", role: "chronicler", label: roleAlias("chronicler") });
-          const summary = await complete(provider, ctx.messages, {
+          const summary = await complete(chroniclerProvider, ctx.messages, {
             system: ctx.system,
             maxTokens: 5000,
             temperature: 0.3,
@@ -219,7 +230,7 @@ export async function POST(req: NextRequest) {
               projectId: project.id,
               discussionId: discussion.id,
               role: "chronicler",
-              model: provider,
+              model: chroniclerProvider,
               phase,
               content: summary.trim(),
             },

@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const workflowSource = readFileSync(new URL("./workflow.ts", import.meta.url), "utf-8");
 const contextSource = readFileSync(new URL("./agents/context.ts", import.meta.url), "utf-8");
+const modelRoutingSource = readFileSync(new URL("./model-routing.ts", import.meta.url), "utf-8");
 const roundtableRouteSource = readFileSync(new URL("../app/api/roundtable/route.ts", import.meta.url), "utf-8");
 
 test("workflow exposes the five PLAN phases in order", () => {
@@ -50,4 +51,15 @@ test("roundtable defaults to grounded interactive discussion", () => {
   assert.match(roundtableRouteSource, /isDirectContextQuestion/);
   assert.match(roundtableRouteSource, /effectiveMaxRounds = directContextQuestion \? 1 : maxRounds/);
   assert.match(roundtableRouteSource, /GROUNDED_ROUNDTABLE_PROTOCOL/);
+  assert.match(roundtableRouteSource, /humanInterjection/);
+  assert.match(roundtableRouteSource, /human_done/);
+});
+
+test("model routing defaults match product expectations", () => {
+  assert.match(modelRoutingSource, /ideaProvider: "gpt"/);
+  assert.match(modelRoutingSource, /structureProvider: "claude-code"/);
+  assert.match(modelRoutingSource, /reviewProvider: "gemini"/);
+  assert.match(modelRoutingSource, /chineseWritingProvider: "deepseek"/);
+  assert.match(modelRoutingSource, /englishWritingProvider: "gpt"/);
+  assert.match(roundtableRouteSource, /routeProviderForRole\(role, provider, providerSettings, writingLanguage\)/);
 });
