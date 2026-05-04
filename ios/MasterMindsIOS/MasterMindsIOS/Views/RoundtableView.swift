@@ -34,7 +34,8 @@ struct RoundtableView: View {
                 status: statusMessage,
                 error: runError,
                 events: discussionEvents,
-                isRunning: isRunning
+                isRunning: isRunning,
+                onCancel: cancelRoundtable
             )
         }
     }
@@ -135,19 +136,24 @@ struct RoundtableView: View {
             }
 
             Button {
-                Task { await startRoundtable() }
+                if isRunning {
+                    cancelRoundtable()
+                } else {
+                    Task { await startRoundtable() }
+                }
             } label: {
                 HStack(spacing: 8) {
                     if isRunning {
                         ProgressView()
                             .tint(AppTheme.reverseInk)
                     }
-                    Label(isRunning ? "圆桌进行中" : "开始圆桌", systemImage: "person.3.sequence")
+                    Label(isRunning ? "停止圆桌" : "开始圆桌", systemImage: isRunning ? "stop.circle" : "person.3.sequence")
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(topicText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRunning)
+            .tint(isRunning ? AppTheme.alert : AppTheme.brass)
+            .disabled(topicText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isRunning)
             .id("run-button")
 
             RoundtableRunStatus(
@@ -221,7 +227,6 @@ struct RoundtableView: View {
             ("editor", "取舍和风险"),
             ("reader", "读者体验"),
             ("continuity", "设定连续性"),
-            ("chronicler", "纪要归纳"),
         ]
     }
 
@@ -237,6 +242,10 @@ struct RoundtableView: View {
         }
         isRecordExpanded = false
         await appState.startRoundtable(projectSlug: project.slug, phase: project.phase)
+    }
+
+    private func cancelRoundtable() {
+        appState.cancelRoundtable(projectSlug: project.slug, phase: project.phase)
     }
 }
 
@@ -422,6 +431,7 @@ private struct RoundtableThreadView: View {
     let error: String?
     let events: [RoundtableEvent]
     let isRunning: Bool
+    let onCancel: () -> Void
 
     var body: some View {
         RoundtableThreadPanel(
@@ -430,14 +440,18 @@ private struct RoundtableThreadView: View {
             status: status,
             error: error,
             events: events,
-            isRunning: isRunning
+            isRunning: isRunning,
+            onCancel: onCancel
         )
         .navigationTitle("圆桌讨论")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isRunning {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ProgressView()
+                    Button(action: onCancel) {
+                        Label("停止", systemImage: "stop.circle")
+                    }
+                    .foregroundStyle(AppTheme.alert)
                 }
             }
         }
@@ -451,6 +465,7 @@ private struct RoundtableThreadPanel: View {
     let error: String?
     let events: [RoundtableEvent]
     let isRunning: Bool
+    var onCancel: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -464,6 +479,15 @@ private struct RoundtableThreadPanel: View {
                         .font(AppTheme.ui(12, weight: .medium))
                         .foregroundStyle(error == nil ? AppTheme.muted : AppTheme.alert)
                         .lineLimit(1)
+                    if isRunning, let onCancel {
+                        Button(action: onCancel) {
+                            Image(systemName: "stop.circle")
+                                .font(AppTheme.ui(17, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AppTheme.alert)
+                        .accessibilityLabel("停止圆桌")
+                    }
                 }
                 if !topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(topic)

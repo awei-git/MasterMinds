@@ -4,6 +4,7 @@ import { complete, type ModelProvider } from "@/lib/llm";
 import { buildContext } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
 import {
+  GROUNDED_ROUNDTABLE_PROTOCOL,
   ROUND_TABLE_PROTOCOL,
   discussionTopicForPhase,
   normalizePhase,
@@ -29,6 +30,10 @@ function transcriptForPrompt(items: Array<{ role: string; content: string }>): s
 
 function hasHardDisagreement(text: string): boolean {
   return /但是|不同意|反对|不成立|硬分歧|待裁决|裁决|我不赞成/.test(text);
+}
+
+function isDirectContextQuestion(topic: string): boolean {
+  return /定了吗|确定了吗|是否|是不是|有没有|是什么|谁|哪里|何时|为什么|怎么|了吗|了吗？|\?$/.test(topic);
 }
 
 export async function GET(req: NextRequest) {
@@ -60,7 +65,7 @@ export async function POST(req: NextRequest) {
     projectSlug,
     provider = "claude-code",
     maxRounds = 2,
-    generateSummary = true,
+    generateSummary = false,
   } = body;
 
   if (!projectSlug) {
@@ -74,6 +79,8 @@ export async function POST(req: NextRequest) {
   const phaseDef = phaseDefinition(phase);
   const topic = body.topic?.trim() || discussionTopicForPhase(phase);
   const roles = body.roles?.length ? body.roles : phaseDef.roundtableRoles;
+  const directContextQuestion = isDirectContextQuestion(topic);
+  const effectiveMaxRounds = directContextQuestion ? 1 : maxRounds;
 
   const discussion = body.discussionId
     ? await prisma.discussion.findFirst({ where: { id: body.discussionId, projectId: project.id } })
@@ -128,7 +135,7 @@ export async function POST(req: NextRequest) {
         ).map((m) => ({ role: m.role, content: m.content }));
 
         let disagreement = true;
-        for (let round = 1; round <= maxRounds && disagreement; round++) {
+        for (let round = 1; round <= effectiveMaxRounds && disagreement; round++) {
           disagreement = false;
           send({ type: "round_start", round });
 
@@ -137,10 +144,13 @@ export async function POST(req: NextRequest) {
             const prompt = [
               `# 圆桌议题\n${topic}`,
               `# 阶段目标\n${phaseDef.goal}`,
+              GROUNDED_ROUNDTABLE_PROTOCOL,
               prior ? `# 已有发言\n${prior}` : "",
-              round === 1
-                ? "请按圆桌发言规则给出你的第一轮发言。"
-                : "请只回应上一轮的分歧；如果没有新增意见，输出 [PASS]。",
+              directContextQuestion
+                ? "这是事实核对问题。先给结论，再列纪要里的具体依据；如果前面已经充分回答且你没有新增具体依据，输出 [PASS]。"
+                : round === 1
+                  ? "请按圆桌发言规则给出你的第一轮发言。必须落到当前项目的具体事实、角色、冲突或结构，不要讲创作理念。"
+                  : "请只回应上一轮的分歧；如果没有新增具体依据或新增裁决项，输出 [PASS]。",
             ].filter(Boolean).join("\n\n---\n\n");
 
             const ctx = buildContext({
@@ -155,8 +165,8 @@ export async function POST(req: NextRequest) {
 
             const raw = await complete(provider, ctx.messages, {
               system: ctx.system,
-              maxTokens: 1800,
-              temperature: 0.6,
+              maxTokens: directContextQuestion ? 700 : 1400,
+              temperature: directContextQuestion ? 0.2 : 0.45,
             }, req.signal);
             const content = raw.replace(/\n?\[PASS\]\n?/g, "").trim();
             const passed = raw.includes("[PASS]") || content.length === 0;

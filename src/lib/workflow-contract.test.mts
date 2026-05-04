@@ -21,6 +21,8 @@ test("workflow exposes the five PLAN phases in order", () => {
 
 test("workflow hard-codes roundtable separation and phase-specific protocols", () => {
   assert.match(workflowSource, /讨论和写作必须严格分离/);
+  assert.match(workflowSource, /圆桌事实锚定协议/);
+  assert.match(workflowSource, /禁止输出：宏大抽象、创作理念空话/);
   assert.match(workflowSource, /信息经济检测/);
   assert.match(workflowSource, /场景功能检查/);
   assert.match(workflowSource, /跨场景重复扫描/);
@@ -41,4 +43,11 @@ test("roundtable agents receive current phase summaries", () => {
   assert.match(contextSource, /includeCurrentPhase \? currentIdx \+ 1 : currentIdx/);
   assert.match(roundtableRouteSource, /includeCurrentPhase: true/);
   assert.match(roundtableRouteSource, /compact: false/);
+});
+
+test("roundtable defaults to grounded interactive discussion", () => {
+  assert.match(roundtableRouteSource, /generateSummary = false/);
+  assert.match(roundtableRouteSource, /isDirectContextQuestion/);
+  assert.match(roundtableRouteSource, /effectiveMaxRounds = directContextQuestion \? 1 : maxRounds/);
+  assert.match(roundtableRouteSource, /GROUNDED_ROUNDTABLE_PROTOCOL/);
 });

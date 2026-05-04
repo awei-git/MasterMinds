@@ -129,10 +129,11 @@ struct MasterMindsAPI {
         phase: String,
         topic: String,
         provider: String = "claude-code",
-        maxRounds: Int = 2
+        maxRounds: Int = 2,
+        generateSummary: Bool = false
     ) -> AsyncThrowingStream<RoundtableEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     var request = try makeRequest(path: "/api/roundtable", method: "POST")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -141,13 +142,15 @@ struct MasterMindsAPI {
                         phase: phase,
                         topic: topic,
                         provider: provider,
-                        maxRounds: maxRounds
+                        maxRounds: maxRounds,
+                        generateSummary: generateSummary
                     ))
 
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
                     try validate(response: response, body: Data())
 
                     for try await line in bytes.lines {
+                        try Task.checkCancellation()
                         if let event = try decodeSSELine(line) {
                             continuation.yield(event)
                             if event.type == "done" || event.type == "error" {
@@ -160,6 +163,9 @@ struct MasterMindsAPI {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
@@ -241,6 +247,7 @@ private struct RoundtablePayload: Encodable {
     let topic: String
     let provider: String
     let maxRounds: Int
+    let generateSummary: Bool
 }
 
 private struct WritingTaskPayload: Encodable {

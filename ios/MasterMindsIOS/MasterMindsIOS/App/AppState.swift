@@ -50,6 +50,7 @@ final class AppState: ObservableObject {
     private static let serverKey = "serverBaseURL"
     static let defaultServerBaseURL = "http://192.168.1.232:3000"
     private let cloudStore = CloudWritingStore()
+    private var roundtableTasks: [String: Task<Void, Never>] = [:]
 
     init() {
         let saved = UserDefaults.standard.string(forKey: Self.serverKey)?
@@ -267,21 +268,50 @@ final class AppState: ObservableObject {
         session.statusMessage = "正在连接 \(serverBaseURL)"
         roundtableSessions[key] = session
 
+        let task = Task {
+            await runRoundtable(projectSlug: projectSlug, phase: phase, key: key, initialSession: session)
+        }
+        roundtableTasks[key] = task
+        await task.value
+    }
+
+    func cancelRoundtable(projectSlug: String, phase: String) {
+        let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
+        roundtableTasks[key]?.cancel()
+        roundtableTasks[key] = nil
+
+        var session = roundtableSessions[key] ?? RoundtableSessionState()
+        guard session.isRunning else { return }
+        session.isRunning = false
+        session.statusMessage = "已停止"
+        session.runError = nil
+        roundtableSessions[key] = session
+    }
+
+    private func runRoundtable(
+        projectSlug: String,
+        phase: String,
+        key: String,
+        initialSession session: RoundtableSessionState
+    ) async {
         defer {
             var latest = roundtableSessions[key] ?? session
             latest.isRunning = false
             roundtableSessions[key] = latest
+            roundtableTasks[key] = nil
         }
 
         do {
             let stream = api.roundtable(
                 projectSlug: projectSlug,
                 phase: phase,
-                topic: trimmedTopic,
-                maxRounds: session.maxRounds
+                topic: session.topic.trimmingCharacters(in: .whitespacesAndNewlines),
+                maxRounds: session.maxRounds,
+                generateSummary: false
             )
             var receivedAnyEvent = false
             for try await event in stream {
+                try Task.checkCancellation()
                 receivedAnyEvent = true
                 var latest = roundtableSessions[key] ?? session
                 latest.events.append(event)
@@ -303,6 +333,11 @@ final class AppState: ObservableObject {
                 latest.statusMessage = "圆桌完成"
             }
             connectionState = .online
+            roundtableSessions[key] = latest
+        } catch is CancellationError {
+            var latest = roundtableSessions[key] ?? session
+            latest.runError = nil
+            latest.statusMessage = "已停止"
             roundtableSessions[key] = latest
         } catch {
             let message = error.localizedDescription
