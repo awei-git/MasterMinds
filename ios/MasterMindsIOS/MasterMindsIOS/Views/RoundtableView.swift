@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RoundtableView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var appState: AppState
     let project: Project
 
@@ -41,6 +42,12 @@ struct RoundtableView: View {
         }
         .task(id: "\(project.slug)::\(project.phase)") {
             await appState.loadRoundtableHistory(projectSlug: project.slug, phase: project.phase)
+        }
+        .onChange(of: scenePhase) {
+            guard scenePhase == .active else { return }
+            Task {
+                await appState.loadRoundtableHistory(projectSlug: project.slug, phase: project.phase)
+            }
         }
     }
 

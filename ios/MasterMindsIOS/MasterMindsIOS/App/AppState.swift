@@ -270,7 +270,6 @@ final class AppState: ObservableObject {
 
             var session = roundtableSessions[key] ?? RoundtableSessionState()
             if session.isRunning { return }
-            if session.discussionId == discussion.id, !session.events.isEmpty { return }
 
             session.topic = discussion.topic
             session.discussionId = discussion.id
@@ -411,6 +410,16 @@ final class AppState: ObservableObject {
             latest.statusMessage = "已停止"
             roundtableSessions[key] = latest
         } catch {
+            if isRecoverableRoundtableDisconnect(error) {
+                var latest = roundtableSessions[key] ?? session
+                latest.isRunning = false
+                latest.runError = nil
+                latest.statusMessage = "连接已暂停，回到前台后会同步记录"
+                roundtableSessions[key] = latest
+                await loadRoundtableHistory(projectSlug: projectSlug, phase: phase)
+                return
+            }
+
             let message = error.localizedDescription
             var latest = roundtableSessions[key] ?? session
             latest.runError = message
@@ -445,6 +454,16 @@ final class AppState: ObservableObject {
 
     private func roundtableSessionKey(projectSlug: String, phase: String) -> String {
         "\(projectSlug)::\(Workflow.normalizePhase(phase))"
+    }
+
+    private func isRecoverableRoundtableDisconnect(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return urlError.code == .networkConnectionLost || urlError.code == .cancelled
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain
+            && (nsError.code == NSURLErrorNetworkConnectionLost || nsError.code == NSURLErrorCancelled)
     }
 
     private func events(for discussion: RoundtableDiscussion) -> [RoundtableEvent] {
