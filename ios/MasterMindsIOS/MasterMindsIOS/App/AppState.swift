@@ -252,6 +252,38 @@ final class AppState: ObservableObject {
         roundtableSessions[roundtableSessionKey(projectSlug: projectSlug, phase: phase)] ?? RoundtableSessionState()
     }
 
+    func loadRoundtableHistory(projectSlug: String, phase: String) async {
+        let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
+        if roundtableSessions[key]?.isRunning == true { return }
+
+        do {
+            let discussions = try await api.roundtableDiscussions(projectSlug: projectSlug, phase: phase)
+            guard let discussion = discussions.first else {
+                if roundtableSessions[key] == nil {
+                    var empty = RoundtableSessionState()
+                    empty.statusMessage = "暂无圆桌记录"
+                    roundtableSessions[key] = empty
+                }
+                connectionState = .online
+                return
+            }
+
+            var session = roundtableSessions[key] ?? RoundtableSessionState()
+            if session.isRunning { return }
+            if session.discussionId == discussion.id, !session.events.isEmpty { return }
+
+            session.topic = discussion.topic
+            session.discussionId = discussion.id
+            session.events = events(for: discussion)
+            session.runError = nil
+            session.statusMessage = discussion.messages.isEmpty ? "暂无圆桌记录" : "已恢复最近圆桌"
+            roundtableSessions[key] = session
+            connectionState = .online
+        } catch {
+            connectionState = .offline(error.localizedDescription)
+        }
+    }
+
     func updateRoundtableTopic(projectSlug: String, phase: String, topic: String) {
         let key = roundtableSessionKey(projectSlug: projectSlug, phase: phase)
         var session = roundtableSessions[key] ?? RoundtableSessionState()
@@ -413,6 +445,38 @@ final class AppState: ObservableObject {
 
     private func roundtableSessionKey(projectSlug: String, phase: String) -> String {
         "\(projectSlug)::\(Workflow.normalizePhase(phase))"
+    }
+
+    private func events(for discussion: RoundtableDiscussion) -> [RoundtableEvent] {
+        var restored: [RoundtableEvent] = [
+            RoundtableEvent(
+                type: "roundtable_start",
+                discussionId: discussion.id,
+                phase: discussion.phase,
+                topic: discussion.topic,
+                roles: nil,
+                role: nil,
+                label: nil,
+                round: nil,
+                error: nil,
+                message: nil
+            )
+        ]
+        restored.append(contentsOf: discussion.messages.map { message in
+            RoundtableEvent(
+                type: message.role == "human" ? "human_done" : "agent_done",
+                discussionId: discussion.id,
+                phase: message.phase ?? discussion.phase,
+                topic: nil,
+                roles: nil,
+                role: message.role,
+                label: WorkflowRole.alias(message.role),
+                round: nil,
+                error: nil,
+                message: message
+            )
+        })
+        return restored
     }
 
     private func status(for event: RoundtableEvent) -> String {

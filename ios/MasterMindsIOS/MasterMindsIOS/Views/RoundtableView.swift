@@ -39,6 +39,9 @@ struct RoundtableView: View {
                 onSendReply: sendRoundtableReply
             )
         }
+        .task(id: "\(project.slug)::\(project.phase)") {
+            await appState.loadRoundtableHistory(projectSlug: project.slug, phase: project.phase)
+        }
     }
 
     private var sessionPanel: some View {

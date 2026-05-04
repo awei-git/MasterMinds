@@ -183,6 +183,14 @@ struct MasterMindsAPI {
         }
     }
 
+    func roundtableDiscussions(projectSlug: String, phase: String? = nil) async throws -> [RoundtableDiscussion] {
+        var query = ["projectSlug": projectSlug]
+        if let phase {
+            query["phase"] = phase
+        }
+        return try await request(path: "/api/roundtable", method: "GET", query: query)
+    }
+
     private func request<T: Decodable>(
         path: String,
         method: String,

@@ -118,6 +118,17 @@ struct RoundtableMessage: Identifiable, Codable, Hashable {
     let createdAt: Date?
 }
 
+struct RoundtableDiscussion: Identifiable, Codable, Hashable {
+    let id: String
+    let topic: String
+    let phase: String
+    let status: String
+    let resolution: String?
+    let messages: [RoundtableMessage]
+    let createdAt: Date?
+    let updatedAt: Date?
+}
+
 struct RoundtableEvent: Identifiable, Codable, Hashable {
     let type: String
     let discussionId: String?

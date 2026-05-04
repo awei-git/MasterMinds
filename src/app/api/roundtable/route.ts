@@ -83,6 +83,7 @@ async function completeWithTimedFallback(
 export async function GET(req: NextRequest) {
   const projectSlug = req.nextUrl.searchParams.get("projectSlug");
   const discussionId = req.nextUrl.searchParams.get("discussionId");
+  const phaseParam = req.nextUrl.searchParams.get("phase");
 
   if (!projectSlug) {
     return Response.json({ error: "projectSlug required" }, { status: 400 });
@@ -91,9 +92,12 @@ export async function GET(req: NextRequest) {
   const project = await prisma.project.findUnique({ where: { slug: projectSlug } });
   if (!project) return Response.json({ error: "project not found" }, { status: 404 });
 
+  const phase = phaseParam ? normalizePhase(phaseParam) : undefined;
   const where = discussionId
     ? { id: discussionId, projectId: project.id }
-    : { projectId: project.id };
+    : phase
+      ? { projectId: project.id, phase }
+      : { projectId: project.id };
   const discussions = await prisma.discussion.findMany({
     where,
     include: { messages: { orderBy: { createdAt: "asc" } } },
