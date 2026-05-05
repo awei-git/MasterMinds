@@ -204,8 +204,20 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
+      let closed = false;
       const send = (data: object) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          return true;
+        } catch {
+          closed = true;
+          if (activeHeartbeat) {
+            clearInterval(activeHeartbeat);
+            activeHeartbeat = null;
+          }
+          return false;
+        }
       };
       let activeHeartbeat: ReturnType<typeof setInterval> | null = null;
 
@@ -361,7 +373,14 @@ export async function POST(req: NextRequest) {
         send({ type: "error", error: err instanceof Error ? err.message : String(err) });
       } finally {
         if (activeHeartbeat) clearInterval(activeHeartbeat);
-        controller.close();
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // Client may have already disconnected.
+          }
+        }
       }
     },
   });
