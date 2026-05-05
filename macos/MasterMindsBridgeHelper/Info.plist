@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>MasterMindsBridgeHelper</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.angwei.masterminds.bridge-helper</string>
+	<key>CFBundleName</key>
+	<string>MasterMinds Bridge Helper</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MasterMinds Bridge Helper reads the selected iCloud Drive bridge folder to sync iPhone requests with the local writing server.</string>
+</dict>
+</plist>
