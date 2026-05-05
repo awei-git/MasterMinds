@@ -39,6 +39,34 @@ function isDirectContextQuestion(topic: string): boolean {
   return /定了吗|确定了吗|是否|是不是|有没有|是什么|谁|哪里|何时|为什么|怎么|了吗|了吗？|\?$/.test(topic);
 }
 
+function sanitizeRoundtableOutput(text: string): string {
+  let cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .trim();
+
+  const finalMarkers = [
+    "Final Answer:",
+    "Final:",
+    "Answer:",
+    "最终回答：",
+    "回答：",
+  ];
+  for (const marker of finalMarkers) {
+    const index = cleaned.lastIndexOf(marker);
+    if (index >= 0) {
+      cleaned = cleaned.slice(index + marker.length).trim();
+      break;
+    }
+  }
+
+  if (/^(Thinking Process|Reasoning|思考过程|推理过程)\s*[:：]/i.test(cleaned)) {
+    return "";
+  }
+
+  return cleaned.replace(/\n?\[PASS\]\n?/g, "").trim();
+}
+
 function timeoutSignal(parent: AbortSignal, ms: number): AbortSignal {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`model timed out after ${Math.round(ms / 1000)}s`)), ms);
@@ -71,7 +99,11 @@ async function completeWithTimedFallback(
         ...options,
         fallback: false,
       }, timeoutSignal(signal, timeoutMs));
-      return { provider, text };
+      const sanitized = sanitizeRoundtableOutput(text);
+      if (!sanitized && text.trim()) {
+        throw new Error("model returned hidden reasoning without a usable answer");
+      }
+      return { provider, text: sanitized };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       onFailure(provider, lastError, index + 1);
@@ -128,8 +160,9 @@ export async function POST(req: NextRequest) {
   const phase = normalizePhase(body.phase ?? project.phase);
   const phaseDef = phaseDefinition(phase);
   const topic = body.topic?.trim() || discussionTopicForPhase(phase);
+  const currentQuestion = body.humanInterjection?.trim() || topic;
   const roles = body.roles?.length ? body.roles : phaseDef.roundtableRoles;
-  const directContextQuestion = isDirectContextQuestion(topic);
+  const directContextQuestion = isDirectContextQuestion(currentQuestion);
   const effectiveMaxRounds = directContextQuestion ? 1 : maxRounds;
 
   const discussion = body.discussionId
@@ -198,14 +231,15 @@ export async function POST(req: NextRequest) {
             const prior = transcriptForPrompt(conversation);
             const prompt = [
               `# 圆桌议题\n${topic}`,
+              body.humanInterjection?.trim() ? `# 本次用户追问\n${body.humanInterjection.trim()}` : "",
               `# 阶段目标\n${phaseDef.goal}`,
               GROUNDED_ROUNDTABLE_PROTOCOL,
               prior ? `# 已有发言\n${prior}` : "",
               directContextQuestion
-                ? "这是事实核对问题。每位成员都必须从自己的职责角度回答：先给结论，再列纪要里的具体依据；如果前面已回答，你也要补充验证、风险或缺口。只有纪要里完全没有与你职责相关的依据时，才输出 [PASS]。"
+                ? "这是创作者的直接问题。每位成员都必须优先回答“本次用户追问”：先给一句人话结论，再给最多 3 条具体理由或落地建议；如果前面已回答，你也要补充验证、风险或缺口。禁止输出思考过程。只有纪要里完全没有与你职责相关的依据时，才输出 [PASS]。"
                 : round === 1
-                  ? "请按圆桌发言规则给出你的第一轮发言。必须落到当前项目的具体事实、角色、冲突或结构，不要讲创作理念。"
-                  : "请只回应上一轮的分歧；如果没有新增具体依据或新增裁决项，输出 [PASS]。",
+                  ? "请按圆桌发言规则给出你的第一轮发言。必须落到当前项目的具体事实、角色、冲突或结构，不要讲创作理念，禁止输出思考过程。"
+                  : "请只回应上一轮的分歧；如果没有新增具体依据或新增裁决项，输出 [PASS]，禁止输出思考过程。",
             ].filter(Boolean).join("\n\n---\n\n");
 
             const effectiveProvider = routeProviderForRole(role, provider, providerSettings, writingLanguage);
@@ -257,7 +291,7 @@ export async function POST(req: NextRequest) {
                 activeHeartbeat = null;
               }
             }
-            const content = raw.replace(/\n?\[PASS\]\n?/g, "").trim();
+            const content = sanitizeRoundtableOutput(raw);
             const passed = raw.includes("[PASS]") || content.length === 0;
 
             if (!passed) {

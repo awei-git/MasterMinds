@@ -59,6 +59,10 @@ test("roundtable defaults to grounded interactive discussion", () => {
   assert.match(roundtableRouteSource, /fallback: false/);
   assert.match(roundtableRouteSource, /completeWithTimedFallback/);
   assert.match(roundtableRouteSource, /\[primaryProvider, "gpt", "local"\]/);
+  assert.match(roundtableRouteSource, /currentQuestion/);
+  assert.match(roundtableRouteSource, /本次用户追问/);
+  assert.match(roundtableRouteSource, /sanitizeRoundtableOutput/);
+  assert.match(roundtableRouteSource, /Thinking Process/);
 });
 
 test("model routing defaults match product expectations", () => {
