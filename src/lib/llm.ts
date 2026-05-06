@@ -43,11 +43,11 @@ export interface StreamCallbacks {
 // --- Provider defaults ---
 
 // Primary creative model: Claude Opus via Max subscription (or claude-code for free via Claude Max)
-// Reviewer/critic models: GPT-5.4, Gemini 2.5 Pro, DeepSeek Reasoner
+// Reviewer/critic models: GPT-5.5, Gemini 2.5 Pro, DeepSeek Reasoner
 const MODEL_DEFAULTS: Record<ModelProvider, string> = {
   claude: "claude-opus-4-6",    // Claude API — primary writer, architect, chief editor
   "claude-code": "claude-opus-4-6", // Claude Code CLI — uses Claude Max subscription, no API cost
-  gpt: "gpt-5.4",               // Parallel reviewer
+  gpt: "gpt-5.5",               // Parallel reviewer
   deepseek: "deepseek-reasoner", // Parallel reviewer (reasoning)
   gemini: "gemini-2.5-pro",     // Parallel reviewer (long context, consistency checks)
   local: process.env.LOCAL_LLM_MODEL ?? "Qwen3.5-27B-4bit",

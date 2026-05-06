@@ -486,7 +486,7 @@ export default function Home() {
               <div className="glass rounded-2xl p-5 relative noise">
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { name: "GPT 5.4", role: "讨论 · brainstorm", accent: "border-l-teal-500/30" },
+                    { name: "GPT 5.5", role: "讨论 · brainstorm", accent: "border-l-teal-500/30" },
                     { name: "DeepSeek", role: "讨论 · brainstorm", accent: "border-l-cyan-500/30" },
                     { name: "Claude", role: "审稿 · review", accent: "border-l-slate-400/30" },
                     { name: "Gemini 3.1", role: "写作 · 备选", accent: "border-l-emerald-500/30" },
