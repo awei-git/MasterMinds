@@ -50,7 +50,7 @@ const MODEL_DEFAULTS: Record<ModelProvider, string> = {
   gpt: "gpt-5.5",               // Parallel reviewer
   deepseek: "deepseek-reasoner", // Parallel reviewer (reasoning)
   gemini: "gemini-2.5-pro",     // Parallel reviewer (long context, consistency checks)
-  local: process.env.LOCAL_LLM_MODEL ?? "Qwen3.5-27B-4bit",
+  local: process.env.LOCAL_LLM_MODEL ?? "gemma",
 };
 
 // Lighter model for internal utility calls (summarization, chapter summaries, continuity checks)
@@ -60,7 +60,7 @@ export const MODEL_UTILITY: Record<ModelProvider, string> = {
   gpt: "gpt-4.1-mini",
   deepseek: "deepseek-chat",
   gemini: "gemini-2.5-flash",
-  local: process.env.LOCAL_LLM_MODEL ?? "Qwen3.5-27B-4bit",
+  local: process.env.LOCAL_LLM_MODEL ?? "gemma",
 };
 
 // --- Lazy-init clients ---
@@ -295,7 +295,7 @@ async function completeOnce(
     ? [{ role: "system" as const, content: opts.system }, ...messages.filter((m) => m.role !== "system")]
     : messages;
 
-  const isReasoning = provider === "gpt" || provider === "deepseek";
+  const isReasoning = provider === "gpt" || model.includes("reasoner");
   const tokenParam = isReasoning
     ? { max_completion_tokens: maxTokens }
     : { max_tokens: maxTokens };
@@ -387,7 +387,7 @@ async function streamOnce(
       ? [{ role: "system" as const, content: opts.system }, ...messages.filter((m) => m.role !== "system")]
       : messages;
 
-    const isReasoning = provider === "gpt" || provider === "deepseek";
+    const isReasoning = provider === "gpt" || model.includes("reasoner");
     const tokenParam = isReasoning
       ? { max_completion_tokens: maxTokens }
       : { max_tokens: maxTokens };

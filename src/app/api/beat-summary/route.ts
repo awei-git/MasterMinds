@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { complete, type ModelProvider } from "@/lib/llm";
+import { complete, MODEL_UTILITY } from "@/lib/llm";
 
 const DATA_DIR = join(process.cwd(), "data");
 
@@ -36,10 +36,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { projectSlug, beatId, provider = "gemini" } = body as {
+    const { projectSlug, beatId } = body as {
       projectSlug: string;
       beatId: string;
-      provider?: ModelProvider;
     };
 
     if (!projectSlug || !beatId) {
@@ -53,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     const content = readFileSync(draft, "utf-8");
 
-    const result = await complete(provider, [
+    const result = await complete("deepseek", [
       {
         role: "user",
         content: `请用3-5句话总结以下段落。包含：(1)情节要点 (2)情绪基调 (3)埋下的伏笔或线索 (4)角色状态变化。不要评价，只记录事实。格式：
@@ -66,7 +65,7 @@ export async function POST(req: NextRequest) {
 
 ${content}`,
       },
-    ], { maxTokens: 500 });
+    ], { model: MODEL_UTILITY.deepseek, maxTokens: 500 });
 
     // Save
     const dir = join(DATA_DIR, projectSlug, "draft-summaries");

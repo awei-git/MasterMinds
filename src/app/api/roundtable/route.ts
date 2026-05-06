@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { complete, type ModelProvider } from "@/lib/llm";
+import { complete, MODEL_UTILITY, type ModelProvider } from "@/lib/llm";
 import { buildContext } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
 import { routeProviderForRole, type ProviderSettings, type WritingLanguage } from "@/lib/model-routing";
@@ -360,7 +360,7 @@ export async function POST(req: NextRequest) {
             ROUND_TABLE_PROTOCOL,
             `# 圆桌记录\n${transcriptForPrompt(conversation)}`,
           ].join("\n\n---\n\n");
-          const chroniclerProvider = routeProviderForRole("chronicler", provider, providerSettings, writingLanguage);
+          const chroniclerProvider: ModelProvider = "deepseek";
           const ctx = buildContext({
             projectSlug,
             role: "chronicler",
@@ -372,6 +372,7 @@ export async function POST(req: NextRequest) {
           send({ type: "chronicler_start", role: "chronicler", label: roleAlias("chronicler") });
           const summary = await complete(chroniclerProvider, ctx.messages, {
             system: ctx.system,
+            model: MODEL_UTILITY.deepseek,
             maxTokens: 5000,
             temperature: 0.3,
           }, req.signal);

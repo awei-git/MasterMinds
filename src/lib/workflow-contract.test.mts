@@ -8,6 +8,9 @@ const llmSource = readFileSync(new URL("./llm.ts", import.meta.url), "utf-8");
 const modelRoutingSource = readFileSync(new URL("./model-routing.ts", import.meta.url), "utf-8");
 const roundtableRouteSource = readFileSync(new URL("../app/api/roundtable/route.ts", import.meta.url), "utf-8");
 const roundtableCompressionSource = readFileSync(new URL("./roundtable-compression.ts", import.meta.url), "utf-8");
+const chatSummarizeSource = readFileSync(new URL("../app/api/chat/summarize/route.ts", import.meta.url), "utf-8");
+const phaseSummarySource = readFileSync(new URL("../app/api/phases/route.ts", import.meta.url), "utf-8");
+const beatSummarySource = readFileSync(new URL("../app/api/beat-summary/route.ts", import.meta.url), "utf-8");
 
 test("workflow exposes the five PLAN phases in order", () => {
   const expected = ["conception", "bible", "structure", "scriptment", "expansion"];
@@ -77,11 +80,22 @@ test("unresolved roundtable history is compressed before long-context reuse", ()
 test("model routing defaults match product expectations", () => {
   assert.match(llmSource, /local/);
   assert.match(llmSource, /LOCAL_LLM_BASE_URL/);
+  assert.match(llmSource, /local: process\.env\.LOCAL_LLM_MODEL \?\? "gemma"/);
+  assert.equal(llmSource.includes("Qwen3.5-27B-4bit"), false);
   assert.match(llmSource, /FALLBACK_CHAIN: ModelProvider\[\] = \["gpt", "local"\]/);
   assert.match(modelRoutingSource, /ideaProvider: "gpt"/);
   assert.match(modelRoutingSource, /structureProvider: "claude-code"/);
   assert.match(modelRoutingSource, /reviewProvider: "gemini"/);
   assert.match(modelRoutingSource, /chineseWritingProvider: "deepseek"/);
   assert.match(modelRoutingSource, /englishWritingProvider: "gpt"/);
+  assert.match(modelRoutingSource, /case "chronicler":[\s\S]*return "deepseek"/);
   assert.match(roundtableRouteSource, /routeProviderForRole\(role, provider, providerSettings, writingLanguage\)/);
+});
+
+test("summarization paths use DeepSeek regardless of active model", () => {
+  assert.match(chatSummarizeSource, /complete\(\s*"deepseek"/);
+  assert.match(phaseSummarySource, /complete\(\s*"deepseek"/);
+  assert.match(beatSummarySource, /complete\(\s*"deepseek"/);
+  assert.match(roundtableRouteSource, /const chroniclerProvider: ModelProvider = "deepseek"/);
+  assert.match(roundtableRouteSource, /model: MODEL_UTILITY\.deepseek/);
 });

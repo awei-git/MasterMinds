@@ -10,7 +10,7 @@
 import { NextRequest } from "next/server";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { complete, type ModelProvider } from "@/lib/llm";
+import { complete, MODEL_UTILITY } from "@/lib/llm";
 
 const DATA_DIR = join(process.cwd(), "data");
 
@@ -69,9 +69,8 @@ export async function PATCH(req: NextRequest) {
 // POST — generate spec by merging phase summaries
 export async function POST(req: NextRequest) {
   try {
-    const { projectSlug, provider = "deepseek" } = (await req.json()) as {
+    const { projectSlug } = (await req.json()) as {
       projectSlug: string;
-      provider?: ModelProvider;
     };
 
     if (!projectSlug) {
@@ -146,9 +145,9 @@ export async function POST(req: NextRequest) {
 ## 字数与篇幅
 （总字数目标、每章/beat 预算）`;
 
-    const result = await complete(provider, [
+    const result = await complete("deepseek", [
       { role: "user", content: `请将以下阶段总结合并为写作规格书：\n\n${merged}` },
-    ], { system: systemPrompt, maxTokens: 8192 });
+    ], { system: systemPrompt, model: MODEL_UTILITY.deepseek, maxTokens: 8192 });
 
     if (!result?.trim()) {
       return Response.json({ error: "生成 Spec 失败" }, { status: 500 });

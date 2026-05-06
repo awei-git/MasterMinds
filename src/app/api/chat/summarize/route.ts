@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
-import { complete, MODEL_UTILITY, type ModelProvider } from "@/lib/llm";
+import { complete, MODEL_UTILITY } from "@/lib/llm";
 
 export async function POST(req: NextRequest) {
-  const { messages, provider = "claude" } = (await req.json()) as {
+  const { messages } = (await req.json()) as {
     messages: { role: string; content: string }[];
-    provider?: ModelProvider;
   };
 
   if (!messages?.length) {
@@ -15,12 +14,12 @@ export async function POST(req: NextRequest) {
     .map((m) => `[${m.role}]: ${m.content}`)
     .join("\n\n");
 
-  // Use utility model for summarization — don't burn Claude Max on a 15-char summary
+  // All summarization uses DeepSeek, independent of the active writing/review model.
   const summary = await complete(
-    provider,
+    "deepseek",
     [{ role: "user", content: conversation }],
     {
-      model: MODEL_UTILITY[provider],
+      model: MODEL_UTILITY.deepseek,
       system:
         "用一句简短的中文概括以下对话的核心内容（15字以内）。只输出概括，不要加引号或其他格式。",
     }

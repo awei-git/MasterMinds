@@ -70,7 +70,7 @@ struct SettingsView: View {
                     ProviderPicker(title: "审查", selection: $providerSettings.reviewProvider)
                     ProviderPicker(title: "中文写作", selection: $providerSettings.chineseWritingProvider)
                     ProviderPicker(title: "英文写作", selection: $providerSettings.englishWritingProvider)
-                    Text("默认路由：idea 用 GPT，结构用 Claude，审查用 Gemini；写作按语言选择 DeepSeek 或 GPT。")
+                    Text("默认路由：idea 用 GPT，结构用 Claude，审查用 Gemini；写作按语言选择 DeepSeek 或 GPT；归纳总结固定用 DeepSeek。")
                         .font(AppTheme.prose(13))
                         .foregroundStyle(AppTheme.muted)
                 }

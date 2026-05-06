@@ -49,8 +49,9 @@ export function routeProviderForRole(
     case "reviewer":
     case "reader":
     case "continuity":
-    case "chronicler":
       return resolved.reviewProvider;
+    case "chronicler":
+      return "deepseek";
     case "writer":
     case "character":
       return writingProvider(resolved, language);

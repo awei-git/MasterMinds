@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { complete, type ModelProvider } from "@/lib/llm";
+import { complete, MODEL_UTILITY } from "@/lib/llm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { syncAppStatus } from "@/lib/status";
@@ -63,10 +63,9 @@ function compactMessage(role: string, content: string): string {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { projectSlug, phase: rawPhase, provider = "deepseek" } = body as {
+    const { projectSlug, phase: rawPhase } = body as {
       projectSlug: string;
       phase: string;
-      provider?: ModelProvider;
     };
 
     if (!projectSlug || !rawPhase) {
@@ -171,9 +170,9 @@ export async function POST(req: Request) {
       ? `\n\n---\n以下是前置阶段的总结，供参考（已确定的内容不需重复）：\n\n${priorContext.join("\n\n")}`
       : "";
 
-    const result = await complete(provider, [
+    const result = await complete("deepseek", [
       { role: "user", content: `以下是「${project.title}」项目「${phaseLabel}」阶段的讨论记录（${phaseMessages.length}条消息）。请整理成阶段总结文档。${priorStr}\n\n---\n\n${transcript}` },
-    ], { system: systemPrompt, maxTokens: 8192 });
+    ], { system: systemPrompt, model: MODEL_UTILITY.deepseek, maxTokens: 8192 });
 
     if (!result || !result.trim()) {
       return Response.json({ error: "LLM returned empty summary" }, { status: 500 });
