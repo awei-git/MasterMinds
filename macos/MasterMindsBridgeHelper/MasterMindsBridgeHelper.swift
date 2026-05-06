@@ -51,9 +51,6 @@ final class MasterMindsBridgeHelper: NSObject, NSApplicationDelegate {
         if let url = try loadBookmarkedFolder() {
             return url
         }
-        if FileManager.default.fileExists(atPath: Self.defaultCloudDocsBridgeURL.path) {
-            return Self.defaultCloudDocsBridgeURL
-        }
         return try chooseBridgeFolder()
     }
 
@@ -138,14 +135,23 @@ private struct BridgeWorker {
     private let isoFormatter = ISO8601DateFormatter()
 
     func prepareFolders() throws {
-        for folder in ["commands", "responses", "processed"] {
+        for folder in ["commands", "responses", "processed", "mirrors"] {
             try fileManager.createDirectory(at: root.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
         }
     }
 
     func processOnce() throws -> Int {
         try prepareFolders()
-        try? writeHeartbeat()
+        do {
+            try writeHeartbeat()
+        } catch {
+            NSLog("MasterMinds bridge heartbeat skipped: \(error)")
+        }
+        do {
+            try mirrorRoundtablesIfDue()
+        } catch {
+            NSLog("MasterMinds bridge mirror skipped: \(error)")
+        }
 
         let commandsURL = root.appendingPathComponent("commands", isDirectory: true)
         let files = try fileManager.contentsOfDirectory(
@@ -229,8 +235,18 @@ private struct BridgeWorker {
             return try requestJSON("PATCH", "/api/writing-tasks", body: payload)
         case "writingTask.run":
             return try requestJSON("POST", "/api/writing-tasks", body: payload, timeout: 900)
+        case "roundtable.list":
+            var query = ["projectSlug": try string(payload, "projectSlug")]
+            if let phase = payload["phase"] as? String, !phase.isEmpty {
+                query["phase"] = phase
+            }
+            let discussions = try requestJSON("GET", "/api/roundtable", query: query)
+            _ = try mirrorRoundtables(projectSlug: query["projectSlug"]!)
+            return discussions
         case "roundtable.run":
-            return try requestSSE("/api/roundtable", body: payload, timeout: 1_200)
+            let events = try requestSSE("/api/roundtable", body: payload, timeout: 1_200)
+            _ = try mirrorRoundtables(projectSlug: try string(payload, "projectSlug"))
+            return events
         default:
             throw BridgeError.invalidCommand("unknown action \(action)")
         }
@@ -323,6 +339,80 @@ private struct BridgeWorker {
             "apiURL": apiURL.absoluteString,
             "helper": "macos",
         ], to: root.appendingPathComponent("heartbeat.json"))
+    }
+
+    private func mirrorRoundtablesIfDue() throws {
+        let marker = root
+            .appendingPathComponent("mirrors", isDirectory: true)
+            .appendingPathComponent("updatedAt.json")
+        if let attributes = try? fileManager.attributesOfItem(atPath: marker.path),
+           let modified = attributes[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) < 60 {
+            return
+        }
+
+        guard let projects = try requestJSON("GET", "/api/projects") as? [[String: Any]] else { return }
+        var mirrored: [String] = []
+        for project in projects {
+            guard let slug = project["slug"] as? String, !slug.isEmpty else { continue }
+            _ = try mirrorRoundtables(projectSlug: slug)
+            mirrored.append(slug)
+        }
+        try fileManager.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try writeObject(["updatedAt": now(), "projects": mirrored], to: marker)
+    }
+
+    private func mirrorRoundtables(projectSlug: String) throws -> [[String: Any]] {
+        guard let discussions = try requestJSON("GET", "/api/roundtable", query: ["projectSlug": projectSlug]) as? [[String: Any]] else {
+            throw BridgeError.requestFailed("roundtable mirror expected a list")
+        }
+
+        let mirrorURL = root
+            .appendingPathComponent("mirrors", isDirectory: true)
+            .appendingPathComponent(safeName(projectSlug), isDirectory: true)
+        try fileManager.createDirectory(at: mirrorURL, withIntermediateDirectories: true)
+        try writeObject(
+            ["projectSlug": projectSlug, "updatedAt": now(), "discussions": discussions],
+            to: mirrorURL.appendingPathComponent("roundtable.json")
+        )
+        try roundtableMarkdown(projectSlug: projectSlug, discussions: discussions)
+            .write(to: mirrorURL.appendingPathComponent("roundtable.md"), atomically: true, encoding: .utf8)
+        return discussions
+    }
+
+    private func roundtableMarkdown(projectSlug: String, discussions: [[String: Any]]) -> String {
+        var lines = [
+            "# \(projectSlug) Roundtable Mirror",
+            "",
+            "> Updated: \(now())",
+            "",
+        ]
+        for discussion in discussions {
+            lines.append("---")
+            lines.append("")
+            lines.append("## \((discussion["topic"] as? String) ?? "(untitled)")")
+            lines.append("")
+            lines.append("- phase: \((discussion["phase"] as? String) ?? "")")
+            lines.append("- status: \((discussion["status"] as? String) ?? "")")
+            lines.append("- updatedAt: \((discussion["updatedAt"] as? String) ?? "")")
+            lines.append("")
+            let messages = discussion["messages"] as? [[String: Any]] ?? []
+            for message in messages {
+                lines.append("### \((message["role"] as? String) ?? "unknown") \((message["createdAt"] as? String) ?? "")")
+                lines.append("")
+                lines.append((message["content"] as? String) ?? "")
+                lines.append("")
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func safeName(_ value: String) -> String {
+        value.map { character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" || character == "."
+                ? String(character)
+                : "_"
+        }.joined()
     }
 
     private func readObject(_ url: URL) throws -> [String: Any] {

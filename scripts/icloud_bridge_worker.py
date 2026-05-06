@@ -120,7 +120,61 @@ def request_sse(path: str, body: Any, timeout: int = 1200) -> list[dict[str, Any
     return events
 
 
-def handle_command(command: dict[str, Any]) -> Any:
+def safe_name(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in value)
+
+
+def discussions_to_markdown(project_slug: str, discussions: list[dict[str, Any]]) -> str:
+    lines = [f"# {project_slug} Roundtable Mirror", "", f"> Updated: {utc_now()}", ""]
+    for discussion in discussions:
+        lines.extend([
+            "---",
+            "",
+            f"## {discussion.get('topic') or '(untitled)'}",
+            "",
+            f"- phase: {discussion.get('phase')}",
+            f"- status: {discussion.get('status')}",
+            f"- updatedAt: {discussion.get('updatedAt')}",
+            "",
+        ])
+        for message in discussion.get("messages") or []:
+            role = message.get("role") or "unknown"
+            created_at = message.get("createdAt") or ""
+            content = message.get("content") or ""
+            lines.extend([f"### {role} {created_at}", "", content, ""])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def mirror_project_roundtables(root: Path, project_slug: str) -> list[dict[str, Any]]:
+    discussions = request_json("GET", "/api/roundtable", query={"projectSlug": project_slug})
+    if not isinstance(discussions, list):
+        raise RuntimeError("roundtable mirror expected a list")
+
+    mirror_dir = root / "mirrors" / safe_name(project_slug)
+    mirror_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(mirror_dir / "roundtable.json", {"projectSlug": project_slug, "updatedAt": utc_now(), "discussions": discussions})
+    (mirror_dir / "roundtable.md").write_text(discussions_to_markdown(project_slug, discussions), encoding="utf-8")
+    return discussions
+
+
+def mirror_all_roundtables(root: Path, min_interval: int = 60) -> None:
+    marker = root / "mirrors" / "updatedAt.json"
+    if marker.exists() and time.time() - marker.stat().st_mtime < min_interval:
+        return
+
+    projects = request_json("GET", "/api/projects")
+    if not isinstance(projects, list):
+        return
+    mirrored: list[str] = []
+    for project in projects:
+        slug = project.get("slug")
+        if isinstance(slug, str) and slug:
+            mirror_project_roundtables(root, slug)
+            mirrored.append(slug)
+    atomic_write_json(marker, {"updatedAt": utc_now(), "projects": mirrored})
+
+
+def handle_command(command: dict[str, Any], root: Path) -> Any:
     action = command.get("action")
     payload = command.get("payload") or {}
 
@@ -157,8 +211,17 @@ def handle_command(command: dict[str, Any]) -> Any:
         )
     if action == "writingTask.run":
         return request_json("POST", "/api/writing-tasks", body=payload, timeout=900)
+    if action == "roundtable.list":
+        query = {"projectSlug": payload["projectSlug"]}
+        if payload.get("phase"):
+            query["phase"] = payload["phase"]
+        discussions = request_json("GET", "/api/roundtable", query=query)
+        mirror_project_roundtables(root, payload["projectSlug"])
+        return discussions
     if action == "roundtable.run":
-        return request_sse("/api/roundtable", payload, timeout=1200)
+        events = request_sse("/api/roundtable", payload, timeout=1200)
+        mirror_project_roundtables(root, payload["projectSlug"])
+        return events
 
     raise RuntimeError(f"Unknown iCloud bridge action: {action}")
 
@@ -170,7 +233,7 @@ def process_command(path: Path, root: Path) -> None:
     processed_path = root / "processed" / path.name
 
     try:
-        data = handle_command(command)
+        data = handle_command(command, root)
         response = {"id": command_id, "status": "ok", "data": data, "updatedAt": utc_now()}
     except Exception as exc:  # noqa: BLE001 - bridge should always produce a response
         response = {"id": command_id, "status": "error", "error": str(exc), "updatedAt": utc_now()}
@@ -192,12 +255,16 @@ def write_heartbeat(root: Path) -> None:
 
 
 def run_once(root: Path) -> int:
-    for folder in ("commands", "responses", "processed"):
+    for folder in ("commands", "responses", "processed", "mirrors"):
         (root / folder).mkdir(parents=True, exist_ok=True)
     try:
         write_heartbeat(root)
     except Exception as exc:  # noqa: BLE001 - status file must not block bridge work
         print(f"[{utc_now()}] heartbeat write skipped: {exc}", file=sys.stderr, flush=True)
+    try:
+        mirror_all_roundtables(root)
+    except Exception as exc:  # noqa: BLE001 - mirror is best-effort
+        print(f"[{utc_now()}] roundtable mirror skipped: {exc}", file=sys.stderr, flush=True)
 
     commands = sorted((root / "commands").glob("*.json"))
     for command in commands:

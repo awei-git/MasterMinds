@@ -303,6 +303,11 @@ private struct BridgeRoundtablePayload: Encodable {
     let humanInterjection: String?
 }
 
+private struct BridgeRoundtableListPayload: Encodable {
+    let projectSlug: String
+    let phase: String?
+}
+
 @MainActor
 final class ICloudBridgeClient {
     private static let bridgeFolderName = "MasterMinds-Bridge"
@@ -327,7 +332,7 @@ final class ICloudBridgeClient {
             if didAccess { url.stopAccessingSecurityScopedResource() }
         }
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        for folder in ["commands", "responses", "processed"] {
+        for folder in ["commands", "responses", "processed", "mirrors"] {
             try fileManager.createDirectory(at: url.appendingPathComponent(folder, isDirectory: true), withIntermediateDirectories: true)
         }
         let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -427,6 +432,14 @@ final class ICloudBridgeClient {
                 humanInterjection: humanInterjection
             ),
             timeout: 1_200
+        )
+    }
+
+    func roundtableDiscussions(projectSlug: String, phase: String?) async throws -> [RoundtableDiscussion] {
+        try await request(
+            action: "roundtable.list",
+            payload: BridgeRoundtableListPayload(projectSlug: projectSlug, phase: phase),
+            timeout: 120
         )
     }
 

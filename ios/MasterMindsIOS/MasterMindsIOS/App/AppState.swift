@@ -356,6 +356,23 @@ final class AppState: ObservableObject {
             connectionState = .online
         } catch {
             connectionState = .offline(error.localizedDescription)
+            if let discussions = try? await cloudBridge.roundtableDiscussions(projectSlug: projectSlug, phase: phase),
+               let discussion = discussions.first {
+                var session = roundtableSessions[key] ?? RoundtableSessionState()
+                if session.isRunning { return }
+
+                session.topic = discussion.topic
+                session.discussionId = discussion.id
+                session.events = events(for: discussion)
+                session.runError = nil
+                session.statusMessage = discussion.messages.isEmpty ? "暂无圆桌记录" : "已通过 iCloud 恢复最近圆桌"
+                roundtableSessions[key] = session
+                cloudSyncState = .available
+            } else if cloudBridge.isAvailable {
+                var empty = roundtableSessions[key] ?? RoundtableSessionState()
+                empty.statusMessage = "iCloud 中暂无圆桌记录"
+                roundtableSessions[key] = empty
+            }
         }
     }
 
