@@ -7,6 +7,7 @@ const contextSource = readFileSync(new URL("./agents/context.ts", import.meta.ur
 const llmSource = readFileSync(new URL("./llm.ts", import.meta.url), "utf-8");
 const modelRoutingSource = readFileSync(new URL("./model-routing.ts", import.meta.url), "utf-8");
 const roundtableRouteSource = readFileSync(new URL("../app/api/roundtable/route.ts", import.meta.url), "utf-8");
+const roundtableCompressionSource = readFileSync(new URL("./roundtable-compression.ts", import.meta.url), "utf-8");
 
 test("workflow exposes the five PLAN phases in order", () => {
   const expected = ["conception", "bible", "structure", "scriptment", "expansion"];
@@ -63,6 +64,14 @@ test("roundtable defaults to grounded interactive discussion", () => {
   assert.match(roundtableRouteSource, /本次用户追问/);
   assert.match(roundtableRouteSource, /sanitizeRoundtableOutput/);
   assert.match(roundtableRouteSource, /Thinking Process/);
+});
+
+test("unresolved roundtable history is compressed before long-context reuse", () => {
+  assert.match(roundtableRouteSource, /compactTranscriptForPrompt/);
+  assert.match(roundtableRouteSource, /contextSummary/);
+  assert.match(roundtableCompressionSource, /未定稿圆桌压缩纪要/);
+  assert.match(roundtableCompressionSource, /只保留结论、分歧、风险、待定项/);
+  assert.match(roundtableCompressionSource, /compactMessagesForTransport/);
 });
 
 test("model routing defaults match product expectations", () => {

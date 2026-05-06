@@ -146,7 +146,7 @@ def discussions_to_markdown(project_slug: str, discussions: list[dict[str, Any]]
 
 
 def mirror_project_roundtables(root: Path, project_slug: str) -> list[dict[str, Any]]:
-    discussions = request_json("GET", "/api/roundtable", query={"projectSlug": project_slug})
+    discussions = request_json("GET", "/api/roundtable", query={"projectSlug": project_slug, "compact": "1"})
     if not isinstance(discussions, list):
         raise RuntimeError("roundtable mirror expected a list")
 

@@ -5,6 +5,13 @@ import { buildContext } from "@/lib/agents/context";
 import type { RoleName } from "@/lib/agents/roles";
 import { routeProviderForRole, type ProviderSettings, type WritingLanguage } from "@/lib/model-routing";
 import {
+  buildRoundtableContextSummary,
+  compactMessagesForTransport,
+  compactTranscriptForPrompt,
+  transcriptForPrompt,
+  type RoundtableDigestDiscussion,
+} from "@/lib/roundtable-compression";
+import {
   GROUNDED_ROUNDTABLE_PROTOCOL,
   ROUND_TABLE_PROTOCOL,
   discussionTopicForPhase,
@@ -25,10 +32,6 @@ interface RoundtableRequest {
   generateSummary?: boolean;
   providerSettings?: ProviderSettings;
   writingLanguage?: WritingLanguage;
-}
-
-function transcriptForPrompt(items: Array<{ role: string; content: string }>): string {
-  return items.map((item) => `【${roleAlias(item.role)}】\n${item.content}`).join("\n\n---\n\n");
 }
 
 function hasHardDisagreement(text: string): boolean {
@@ -116,6 +119,7 @@ export async function GET(req: NextRequest) {
   const projectSlug = req.nextUrl.searchParams.get("projectSlug");
   const discussionId = req.nextUrl.searchParams.get("discussionId");
   const phaseParam = req.nextUrl.searchParams.get("phase");
+  const compact = req.nextUrl.searchParams.get("compact") === "1";
 
   if (!projectSlug) {
     return Response.json({ error: "projectSlug required" }, { status: 400 });
@@ -135,8 +139,23 @@ export async function GET(req: NextRequest) {
     include: { messages: { orderBy: { createdAt: "asc" } } },
     orderBy: { updatedAt: "desc" },
   });
+  const response = discussions.map((discussion) => {
+    const digestDiscussion: RoundtableDigestDiscussion = {
+      id: discussion.id,
+      topic: discussion.topic,
+      phase: discussion.phase,
+      status: discussion.status,
+      resolution: discussion.resolution,
+      messages: discussion.messages,
+    };
+    return {
+      ...discussion,
+      contextSummary: buildRoundtableContextSummary(digestDiscussion),
+      messages: compact ? compactMessagesForTransport(digestDiscussion) : discussion.messages,
+    };
+  });
 
-  return Response.json(discussionId ? discussions[0] ?? null : discussions);
+  return Response.json(discussionId ? response[0] ?? null : response);
 }
 
 export async function POST(req: NextRequest) {
@@ -240,7 +259,13 @@ export async function POST(req: NextRequest) {
           send({ type: "round_start", round });
 
           for (const role of roles) {
-            const prior = transcriptForPrompt(conversation);
+            const prior = compactTranscriptForPrompt({
+              topic,
+              phase,
+              status: discussion.status,
+              resolution: discussion.resolution,
+              messages: conversation,
+            });
             const prompt = [
               `# 圆桌议题\n${topic}`,
               body.humanInterjection?.trim() ? `# 本次用户追问\n${body.humanInterjection.trim()}` : "",

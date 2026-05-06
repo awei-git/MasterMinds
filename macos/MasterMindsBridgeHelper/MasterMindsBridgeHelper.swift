@@ -363,7 +363,7 @@ private struct BridgeWorker {
     }
 
     private func mirrorRoundtables(projectSlug: String) throws -> [[String: Any]] {
-        guard let discussions = try requestJSON("GET", "/api/roundtable", query: ["projectSlug": projectSlug]) as? [[String: Any]] else {
+        guard let discussions = try requestJSON("GET", "/api/roundtable", query: ["projectSlug": projectSlug, "compact": "1"]) as? [[String: Any]] else {
             throw BridgeError.requestFailed("roundtable mirror expected a list")
         }
 
